@@ -1,0 +1,9 @@
+[package]
+name = "tracc"
+version = "0.1.0"
+authors = ["kageru <kageru@encode.moe>"]
+edition = "2018"
+
+[dependencies]
+tui = "0.8.0"
+termion = "1.5"
