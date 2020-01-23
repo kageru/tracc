@@ -20,7 +20,7 @@ fn main() -> Result<(), io::Error> {
     let mut inputs = io::stdin().keys();
     let backend = TermionBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let mut tracc = Tracc::new();
+    let mut tracc = Tracc::open_or_create();
     terminal.hide_cursor()?;
     terminal.clear()?;
     loop {
@@ -29,7 +29,10 @@ fn main() -> Result<(), io::Error> {
         let input = inputs.next().unwrap().expect("input ded?");
         match tracc.mode {
             Mode::Normal => match input {
-                Key::Char('q') => break,
+                Key::Char('q') => {
+                    tracc.persist();
+                    break;
+                },
                 Key::Char('j') => tracc.selection_down(),
                 Key::Char('k') => tracc.selection_up(),
                 Key::Char('o') => {

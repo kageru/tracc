@@ -1,5 +1,8 @@
 use super::Mode;
-use std::io;
+use serde::{Deserialize, Serialize};
+use serde_json::from_reader;
+use std::fs::File;
+use std::io::{self, BufReader, Write};
 use tui::backend::Backend;
 use tui::Terminal;
 
@@ -10,6 +13,7 @@ pub struct Tracc {
     pub mode: Mode,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Todo {
     text: String,
     done: bool,
@@ -24,14 +28,19 @@ impl Todo {
     }
 }
 
+const JSON_PATH: &str = "tracc.json";
+
+fn read_todos() -> Option<Vec<Todo>> {
+    File::open(JSON_PATH)
+        .ok()
+        .map(|f| BufReader::new(f))
+        .and_then(|r| from_reader(r).ok())
+}
+
 impl Tracc {
-    pub fn new() -> Self {
+    pub fn open_or_create() -> Self {
         Self {
-            todos: vec![
-                Todo::new("This is a list entry"),
-                Todo::new("a second todo"),
-                Todo::new("And a third"),
-            ],
+            todos: read_todos().unwrap_or(vec![Todo::new("This is a list entry")]),
             selected: Some(0),
             mode: Mode::Normal,
         }
@@ -84,8 +93,8 @@ impl Tracc {
                 if self.current().text.is_empty() {
                     self.remove_current()
                 }
-                term.hide_cursor()? 
-            },
+                term.hide_cursor()?
+            }
         };
         self.mode = mode;
         Ok(())
@@ -97,5 +106,13 @@ impl Tracc {
 
     pub fn current_pop(&mut self) {
         self.todos[self.selected.unwrap()].text.pop();
+    }
+
+    pub fn persist(self) {
+        let string = serde_json::to_string(&self.todos).unwrap();
+        std::fs::OpenOptions::new().create(true).write(true).open(JSON_PATH)
+            .ok()
+            .or_else(|| panic!("Can’t save todos to JSON. Dumping raw data:\n{}", string))
+            .map(|mut f| f.write(string.as_bytes()));
     }
 }
