@@ -33,6 +33,7 @@ fn main() -> Result<(), io::Error> {
             Mode::Normal => match input {
                 Key::Char('q') => {
                     tracc.persist();
+                    terminal.clear()?;
                     break;
                 },
                 Key::Char('j') => tracc.selection_down(),
