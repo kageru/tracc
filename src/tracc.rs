@@ -13,7 +13,7 @@ pub struct Tracc {
     pub mode: Mode,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Todo {
     text: String,
     done: bool,
@@ -61,17 +61,28 @@ impl Tracc {
         self.selected = self.selected.map(|i| i.saturating_sub(1));
     }
 
-    pub fn insert(&mut self) {
-        self.todos.insert(self.selected.unwrap() + 1, Todo::new(""));
-        self.selected = self.selected.map(|n| n + 1);
+    pub fn insert(&mut self, todo: Todo) {
+        if let Some(position) = self.selected {
+            if position == self.todos.len().saturating_sub(1) {
+                self.todos.push(todo);
+                self.selected = Some(self.todos.len() - 1);
+            } else {
+                self.todos.insert(position + 1, todo);
+                self.selected = Some(position + 1);
+            }
+        }
         self.mode = Mode::Normal;
     }
 
-    pub fn remove_current(&mut self) {
-        if let Some(n) = self.selected {
-            self.todos.remove(n);
-            self.selected = Some(n.min(self.todos.len() - 1));
+    pub fn remove_current(&mut self) -> Option<Todo> {
+        if self.todos.is_empty() {
+            return None;
         }
+        if let Some(n) = self.selected {
+            self.selected = Some(n.min(self.todos.len() - 1));
+            return Some(self.todos.remove(n));
+        }
+        None
     }
 
     pub fn toggle_current(&mut self) {
@@ -91,7 +102,8 @@ impl Tracc {
             Mode::Insert => term.show_cursor()?,
             Mode::Normal => {
                 if self.current().text.is_empty() {
-                    self.remove_current()
+                    self.remove_current();
+                    self.selected.as_mut().map(|n| *n = n.saturating_sub(1));
                 }
                 term.hide_cursor()?
             }

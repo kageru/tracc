@@ -1,4 +1,5 @@
 use std::io;
+use std::default::Default;
 use termion::event::Key;
 use termion::raw::IntoRawMode;
 use termion::input::TermRead;
@@ -21,12 +22,13 @@ fn main() -> Result<(), io::Error> {
     let backend = TermionBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let mut tracc = Tracc::open_or_create();
+    let mut register = std::default::Default::default();
     terminal.hide_cursor()?;
     terminal.clear()?;
     loop {
         refresh(&mut terminal, &tracc)?;
         // I need to find a better way to handle inputs. This is awful.
-        let input = inputs.next().unwrap().expect("input ded?");
+        let input = inputs.next().unwrap()?;
         match tracc.mode {
             Mode::Normal => match input {
                 Key::Char('q') => {
@@ -36,7 +38,7 @@ fn main() -> Result<(), io::Error> {
                 Key::Char('j') => tracc.selection_down(),
                 Key::Char('k') => tracc.selection_up(),
                 Key::Char('o') => {
-                    tracc.insert();
+                    tracc.insert(Default::default());
                     tracc.set_mode(Mode::Insert, &mut terminal)?;
                 }
                 Key::Char('a') => tracc.set_mode(Mode::Insert, &mut terminal)?,
@@ -44,8 +46,13 @@ fn main() -> Result<(), io::Error> {
                 Key::Char(' ') => tracc.toggle_current(),
                 // dd
                 Key::Char('d') => {
-                    if let Key::Char('d') = inputs.next().unwrap().unwrap() {
-                        tracc.remove_current()
+                    if let Key::Char('d') = inputs.next().unwrap()? {
+                        register = tracc.remove_current()
+                    }
+                }
+                Key::Char('p') => {
+                    if register.is_some() {
+                        tracc.insert(register.clone().unwrap());
                     }
                 }
                 _ => (),
