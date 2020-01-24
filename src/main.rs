@@ -76,7 +76,7 @@ fn refresh(terminal: &mut tui::Terminal<impl Backend>, tracc: &Tracc) -> Result<
         SelectableList::default()
             .block(block)
             .items(&tracc.printable_todos())
-            .select(tracc.selected)
+            .select(Some(tracc.selected))
             .highlight_style(Style::default().fg(Color::LightGreen))
             .highlight_symbol(">")
             .render(&mut frame, size);
