@@ -110,7 +110,11 @@ impl Tracc {
 
     pub fn persist(self) {
         let string = serde_json::to_string(&self.todos).unwrap();
-        std::fs::OpenOptions::new().create(true).write(true).open(JSON_PATH)
+        std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(JSON_PATH)
             .ok()
             .or_else(|| panic!("Can’t save todos to JSON. Dumping raw data:\n{}", string))
             .map(|mut f| f.write(string.as_bytes()));
