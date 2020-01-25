@@ -71,7 +71,7 @@ impl TodoList {
             return None;
         }
         let index = self.selected;
-        self.selected = index.min(self.todos.len() - 2);
+        self.selected = index.min(self.todos.len().saturating_sub(2));
         return Some(self.todos.remove(index));
     }
 
