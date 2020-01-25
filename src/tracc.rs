@@ -1,6 +1,6 @@
 use super::todolist::TodoList;
 use std::default::Default;
-use std::io;
+use std::io::{self,Write};
 use termion::event::Key;
 use termion::input::TermRead;
 use tui::backend::TermionBackend;
@@ -8,6 +8,7 @@ use tui::style::{Color, Style};
 use tui::widgets::*;
 
 type Terminal = tui::Terminal<TermionBackend<termion::raw::RawTerminal<io::Stdout>>>;
+const JSON_PATH: &str = "tracc.json";
 
 pub enum Mode {
     Insert,
@@ -23,7 +24,7 @@ pub struct Tracc {
 impl Tracc {
     pub fn new(terminal: Terminal) -> Self {
         Self {
-            todos: TodoList::open_or_create(),
+            todos: TodoList::open_or_create(JSON_PATH),
             terminal,
             input_mode: Mode::Normal,
         }
@@ -37,11 +38,7 @@ impl Tracc {
             let input = inputs.next().unwrap()?;
             match self.input_mode {
                 Mode::Normal => match input {
-                    Key::Char('q') => {
-                        self.todos.persist();
-                        self.terminal.clear()?;
-                        break;
-                    }
+                    Key::Char('q') => break,
                     Key::Char('j') => self.todos.selection_down(),
                     Key::Char('k') => self.todos.selection_up(),
                     Key::Char('o') => {
@@ -71,6 +68,8 @@ impl Tracc {
                 },
             };
         }
+        self.terminal.clear()?;
+        persist_todos(&self.todos, JSON_PATH);
         Ok(())
     }
 
@@ -100,4 +99,16 @@ fn refresh(terminal: &mut Terminal, todos: &TodoList) -> Result<(), io::Error> {
             .render(&mut frame, size);
     })?;
     Ok(())
+}
+
+fn persist_todos(todos: &TodoList, path: &str) {
+    let string = serde_json::to_string(&todos.todos).unwrap();
+    std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(path)
+        .ok()
+        .or_else(|| panic!("Can’t save todos to JSON. Dumping raw data:\n{}", string))
+        .map(|mut f| f.write(string.as_bytes()));
 }

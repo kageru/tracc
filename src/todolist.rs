@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
 use std::fs::File;
-use std::io::{BufReader, Write};
+use std::io::BufReader;
 
 pub struct TodoList {
     // We use owned strings here because they’re easier to manipulate when editing.
@@ -25,19 +25,17 @@ impl Todo {
     }
 }
 
-const JSON_PATH: &str = "tracc.json";
-
-fn read_todos() -> Option<Vec<Todo>> {
-    File::open(JSON_PATH)
+fn read_todos(path: &str) -> Option<Vec<Todo>> {
+    File::open(path)
         .ok()
         .map(|f| BufReader::new(f))
         .and_then(|r| from_reader(r).ok())
 }
 
 impl TodoList {
-    pub fn open_or_create() -> Self {
+    pub fn open_or_create(path: &str) -> Self {
         TodoList {
-            todos: read_todos().unwrap_or(vec![Todo::new("This is a list entry")]),
+            todos: read_todos(path).unwrap_or(vec![Todo::new("This is a list entry")]),
             selected: 0,
             register: None,
         }
@@ -98,17 +96,5 @@ impl TodoList {
 
     pub fn current_pop(&mut self) {
         self.todos[self.selected].text.pop();
-    }
-
-    pub fn persist(&self) {
-        let string = serde_json::to_string(&self.todos).unwrap();
-        std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(JSON_PATH)
-            .ok()
-            .or_else(|| panic!("Can’t save todos to JSON. Dumping raw data:\n{}", string))
-            .map(|mut f| f.write(string.as_bytes()));
     }
 }
