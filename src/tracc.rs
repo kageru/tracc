@@ -1,9 +1,10 @@
 use super::todolist::TodoList;
 use std::default::Default;
-use std::io::{self,Write};
+use std::io::{self, Write};
 use termion::event::Key;
 use termion::input::TermRead;
 use tui::backend::TermionBackend;
+use tui::layout::*;
 use tui::style::{Color, Style};
 use tui::widgets::*;
 
@@ -19,6 +20,7 @@ pub struct Tracc {
     todos: TodoList,
     terminal: Terminal,
     input_mode: Mode,
+    top_panel_selected: bool,
 }
 
 impl Tracc {
@@ -27,13 +29,14 @@ impl Tracc {
             todos: TodoList::open_or_create(JSON_PATH),
             terminal,
             input_mode: Mode::Normal,
+            top_panel_selected: true,
         }
     }
 
     pub fn run(&mut self) -> Result<(), io::Error> {
         let mut inputs = io::stdin().keys();
         loop {
-            refresh(&mut self.terminal, &self.todos)?;
+            refresh(&mut self.terminal, &self.todos, self.top_panel_selected)?;
             // I need to find a better way to handle inputs. This is awful.
             let input = inputs.next().unwrap()?;
             match self.input_mode {
@@ -58,6 +61,7 @@ impl Tracc {
                             self.todos.insert(self.todos.register.clone().unwrap());
                         }
                     }
+                    Key::Char('\t') => self.top_panel_selected = !self.top_panel_selected,
                     _ => (),
                 },
                 Mode::Insert => match input {
@@ -86,17 +90,52 @@ impl Tracc {
     }
 }
 
-fn refresh(terminal: &mut Terminal, todos: &TodoList) -> Result<(), io::Error> {
-    terminal.draw(|mut frame| {
-        let size = frame.size();
-        let block = Block::default().title(" t r a c c ").borders(Borders::ALL);
+fn refresh(terminal: &mut Terminal, todos: &TodoList, top_selected: bool) -> Result<(), io::Error> {
+    fn selectable_list<'a, C: AsRef<str>>(
+        title: &'a str,
+        content: &'a [C],
+        selected: Option<usize>,
+    ) -> SelectableList<'a> {
         SelectableList::default()
-            .block(block)
-            .items(&todos.printable_todos())
-            .select(Some(todos.selected))
+            .block(
+                Block::default()
+                    .title(title)
+                    .borders(Borders::TOP | Borders::RIGHT | Borders::LEFT),
+            )
+            .items(content)
+            .select(selected.into())
             .highlight_style(Style::default().fg(Color::LightGreen))
             .highlight_symbol(">")
-            .render(&mut frame, size);
+    }
+
+    terminal.draw(|mut frame| {
+        let size = frame.size();
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                [
+                    Constraint::Percentage(42),
+                    Constraint::Percentage(42),
+                    Constraint::Percentage(16),
+                ]
+                .as_ref(),
+            )
+            .split(size);
+        selectable_list(
+            " t r a c c ",
+            &todos.printable(),
+            Some(todos.selected).filter(|_| top_selected),
+        )
+        .render(&mut frame, chunks[0]);
+        selectable_list(
+            " 🕑 ",
+            &["[08:23] start", "[09:35] end"],
+            Some(0).filter(|_| !top_selected),
+        )
+        .render(&mut frame, chunks[1]);
+        Paragraph::new([Text::raw("Sum for today: 1:12")].iter())
+            .block(Block::default().borders(Borders::ALL))
+            .render(&mut frame, chunks[2]);
     })?;
     Ok(())
 }

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
 use std::fs::File;
+use std::fmt;
 use std::io::BufReader;
 
 pub struct TodoList {
@@ -25,6 +26,12 @@ impl Todo {
     }
 }
 
+impl fmt::Display for Todo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[{}] {}", if self.done { 'x' } else { ' ' }, self.text)
+    }
+}
+
 fn read_todos(path: &str) -> Option<Vec<Todo>> {
     File::open(path)
         .ok()
@@ -39,13 +46,6 @@ impl TodoList {
             selected: 0,
             register: None,
         }
-    }
-
-    pub fn printable_todos(&self) -> Vec<String> {
-        self.todos
-            .iter()
-            .map(|todo| format!("[{}] {}", if todo.done { 'x' } else { ' ' }, todo.text))
-            .collect()
     }
 
     pub fn selection_down(&mut self) {
@@ -96,5 +96,9 @@ impl TodoList {
 
     pub fn current_pop(&mut self) {
         self.todos[self.selected].text.pop();
+    }
+
+    pub fn printable(&self) -> Vec<String> {
+        self.todos.iter().map(Todo::to_string).collect()
     }
 }
