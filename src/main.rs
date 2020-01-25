@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 use std::io;
 use termion::raw::IntoRawMode;
 use tui::backend::TermionBackend;
