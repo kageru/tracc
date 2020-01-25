@@ -1,53 +1,55 @@
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
-use std::fs::File;
 use std::fmt;
+use std::fs::File;
 use std::io::BufReader;
+use time::Time;
 
-pub struct TodoList {
-    pub todos: Vec<Todo>,
+pub struct TimeSheet {
+    pub times: Vec<TimePoint>,
     pub selected: usize,
-    pub register: Option<Todo>,
+    pub register: Option<TimePoint>,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone)]
-pub struct Todo {
-    // We use owned strings here because they’re easier to manipulate when editing.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TimePoint {
     text: String,
-    done: bool,
+    time: Time,
 }
 
-impl Todo {
+impl TimePoint {
     pub fn new(text: &str) -> Self {
-        Todo {
-            text: text.to_owned(),
-            done: false,
+        Self {
+            text: String::from(text),
+            time: Time::now(),
         }
     }
 }
 
-impl fmt::Display for Todo {
+impl fmt::Display for TimePoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[{}] {}", if self.done { 'x' } else { ' ' }, self.text)
+        write!(f, "[{}] {}", self.time.format("%H:%M"), self.text)
     }
 }
 
-fn read_todos(path: &str) -> Option<Vec<Todo>> {
-    File::open(path)
-        .ok()
-        .map(|f| BufReader::new(f))
-        .and_then(|r| from_reader(r).ok())
-}
-
-impl TodoList {
-    pub fn open_or_create(path: &str) -> Self {
-        TodoList {
-            todos: read_todos(path).unwrap_or(vec![Todo::new("This is a list entry")]),
+impl TimeSheet {
+    pub fn new() -> Self {
+        Self {
+            times: vec![
+                TimePoint::new("A test value"),
+                TimePoint::new("A second test value"),
+            ],
             selected: 0,
             register: None,
         }
     }
 
+    pub fn printable(&self) -> Vec<String> {
+        self.times.iter().map(TimePoint::to_string).collect()
+    }
+}
+/*
+impl TimeSheet {
     pub fn selection_down(&mut self) {
         self.selected = (self.selected + 1).min(self.todos.len().saturating_sub(1));
     }
@@ -98,7 +100,5 @@ impl TodoList {
         self.todos[self.selected].text.pop();
     }
 
-    pub fn printable(&self) -> Vec<String> {
-        self.todos.iter().map(Todo::to_string).collect()
-    }
 }
+*/

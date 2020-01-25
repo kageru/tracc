@@ -1,4 +1,5 @@
 use super::todolist::TodoList;
+use super::timesheet::TimeSheet;
 use std::default::Default;
 use std::io::{self, Write};
 use termion::event::Key;
@@ -16,27 +17,35 @@ pub enum Mode {
     Normal,
 }
 
+#[derive(PartialEq)]
+enum Focus {
+    Top,
+    Bottom,
+}
+
 pub struct Tracc {
     todos: TodoList,
+    times: TimeSheet,
     terminal: Terminal,
     input_mode: Mode,
-    top_panel_selected: bool,
+    focus: Focus,
 }
 
 impl Tracc {
     pub fn new(terminal: Terminal) -> Self {
         Self {
             todos: TodoList::open_or_create(JSON_PATH),
+            times: TimeSheet::new(),
             terminal,
             input_mode: Mode::Normal,
-            top_panel_selected: true,
+            focus: Focus::Top,
         }
     }
 
     pub fn run(&mut self) -> Result<(), io::Error> {
         let mut inputs = io::stdin().keys();
         loop {
-            refresh(&mut self.terminal, &self.todos, self.top_panel_selected)?;
+            self.refresh()?;
             // I need to find a better way to handle inputs. This is awful.
             let input = inputs.next().unwrap()?;
             match self.input_mode {
@@ -61,7 +70,12 @@ impl Tracc {
                             self.todos.insert(self.todos.register.clone().unwrap());
                         }
                     }
-                    Key::Char('\t') => self.top_panel_selected = !self.top_panel_selected,
+                    Key::Char('\t') => {
+                        self.focus = match self.focus {
+                            Focus::Top => Focus::Bottom,
+                            Focus::Bottom => Focus::Top,
+                        }
+                    }
                     _ => (),
                 },
                 Mode::Insert => match input {
@@ -88,56 +102,53 @@ impl Tracc {
         self.input_mode = mode;
         Ok(())
     }
-}
 
-fn refresh(terminal: &mut Terminal, todos: &TodoList, top_selected: bool) -> Result<(), io::Error> {
-    fn selectable_list<'a, C: AsRef<str>>(
-        title: &'a str,
-        content: &'a [C],
-        selected: Option<usize>,
-    ) -> SelectableList<'a> {
-        SelectableList::default()
-            .block(
-                Block::default()
-                    .title(title)
-                    .borders(Borders::TOP | Borders::RIGHT | Borders::LEFT),
-            )
-            .items(content)
-            .select(selected.into())
-            .highlight_style(Style::default().fg(Color::LightGreen))
-            .highlight_symbol(">")
+    fn refresh(&mut self) -> Result<(), io::Error> {
+        fn selectable_list<'a, C: AsRef<str>>(
+            title: &'a str,
+            content: &'a [C],
+            selected: Option<usize>,
+        ) -> SelectableList<'a> {
+            SelectableList::default()
+                .block(
+                    Block::default()
+                        .title(title)
+                        .borders(Borders::TOP | Borders::RIGHT | Borders::LEFT),
+                )
+                .items(content)
+                .select(selected.into())
+                .highlight_style(Style::default().fg(Color::LightGreen))
+                .highlight_symbol(">")
+        }
+
+        let printable_todos = self.todos.printable();
+        let top_focus = Some(self.todos.selected).filter(|_| self.focus == Focus::Top);
+        let printable_times = self.times.printable();
+        let bottom_focus = Some(self.times.selected).filter(|_| self.focus == Focus::Bottom);
+
+        self.terminal.draw(|mut frame| {
+            let size = frame.size();
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(
+                    [
+                        Constraint::Percentage(42),
+                        Constraint::Percentage(42),
+                        Constraint::Percentage(16),
+                    ]
+                    .as_ref(),
+                )
+                .split(size);
+            selectable_list(" t r a c c ", &printable_todos, top_focus)
+                .render(&mut frame, chunks[0]);
+            selectable_list(" 🕑 ", &printable_times, bottom_focus)
+                .render(&mut frame, chunks[1]);
+            Paragraph::new([Text::raw("Sum for today: 1:12")].iter())
+                .block(Block::default().borders(Borders::ALL))
+                .render(&mut frame, chunks[2]);
+        })?;
+        Ok(())
     }
-
-    terminal.draw(|mut frame| {
-        let size = frame.size();
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(
-                [
-                    Constraint::Percentage(42),
-                    Constraint::Percentage(42),
-                    Constraint::Percentage(16),
-                ]
-                .as_ref(),
-            )
-            .split(size);
-        selectable_list(
-            " t r a c c ",
-            &todos.printable(),
-            Some(todos.selected).filter(|_| top_selected),
-        )
-        .render(&mut frame, chunks[0]);
-        selectable_list(
-            " 🕑 ",
-            &["[08:23] start", "[09:35] end"],
-            Some(0).filter(|_| !top_selected),
-        )
-        .render(&mut frame, chunks[1]);
-        Paragraph::new([Text::raw("Sum for today: 1:12")].iter())
-            .block(Block::default().borders(Borders::ALL))
-            .render(&mut frame, chunks[2]);
-    })?;
-    Ok(())
 }
 
 fn persist_todos(todos: &TodoList, path: &str) {

@@ -5,6 +5,7 @@ use tui::backend::TermionBackend;
 use tui::Terminal;
 mod todolist;
 mod tracc;
+mod timesheet;
 use tracc::Tracc;
 
 fn main() -> Result<(), io::Error> {
