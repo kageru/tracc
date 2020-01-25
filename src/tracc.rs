@@ -1,130 +1,103 @@
-use super::Mode;
-use serde::{Deserialize, Serialize};
-use serde_json::from_reader;
-use std::fs::File;
-use std::io::{self, BufReader, Write};
-use tui::backend::Backend;
-use tui::Terminal;
+use super::todolist::TodoList;
+use std::default::Default;
+use std::io;
+use termion::event::Key;
+use termion::input::TermRead;
+use tui::backend::TermionBackend;
+use tui::style::{Color, Style};
+use tui::widgets::*;
+
+type Terminal = tui::Terminal<TermionBackend<termion::raw::RawTerminal<io::Stdout>>>;
+
+pub enum Mode {
+    Insert,
+    Normal,
+}
 
 pub struct Tracc {
-    // We use owned strings here because they’re easier to manipulate when editing.
-    pub todos: Vec<Todo>,
-    pub selected: usize,
-    pub mode: Mode,
-}
-
-#[derive(Serialize, Deserialize, Default, Clone)]
-pub struct Todo {
-    text: String,
-    done: bool,
-}
-
-impl Todo {
-    pub fn new(text: &str) -> Self {
-        Todo {
-            text: text.to_owned(),
-            done: false,
-        }
-    }
-}
-
-const JSON_PATH: &str = "tracc.json";
-
-fn read_todos() -> Option<Vec<Todo>> {
-    File::open(JSON_PATH)
-        .ok()
-        .map(|f| BufReader::new(f))
-        .and_then(|r| from_reader(r).ok())
+    todos: TodoList,
+    terminal: Terminal,
+    input_mode: Mode,
 }
 
 impl Tracc {
-    pub fn open_or_create() -> Self {
+    pub fn new(terminal: Terminal) -> Self {
         Self {
-            todos: read_todos().unwrap_or(vec![Todo::new("This is a list entry")]),
-            selected: 0,
-            mode: Mode::Normal,
+            todos: TodoList::open_or_create(),
+            terminal,
+            input_mode: Mode::Normal,
         }
     }
 
-    pub fn printable_todos(&self) -> Vec<String> {
-        self.todos
-            .iter()
-            .map(|todo| format!("[{}] {}", if todo.done { 'x' } else { ' ' }, todo.text))
-            .collect()
-    }
-
-    pub fn selection_down(&mut self) {
-        self.selected = (self.selected + 1).min(self.todos.len().saturating_sub(1));
-    }
-
-    pub fn selection_up(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
-    }
-
-    pub fn insert(&mut self, todo: Todo) {
-        if self.selected == self.todos.len().saturating_sub(1) {
-            self.todos.push(todo);
-            self.selected = self.todos.len() - 1;
-        } else {
-            self.todos.insert(self.selected + 1, todo);
-            self.selected += 1;
+    pub fn run(&mut self) -> Result<(), io::Error> {
+        let mut inputs = io::stdin().keys();
+        loop {
+            refresh(&mut self.terminal, &self.todos)?;
+            // I need to find a better way to handle inputs. This is awful.
+            let input = inputs.next().unwrap()?;
+            match self.input_mode {
+                Mode::Normal => match input {
+                    Key::Char('q') => {
+                        self.todos.persist();
+                        self.terminal.clear()?;
+                        break;
+                    }
+                    Key::Char('j') => self.todos.selection_down(),
+                    Key::Char('k') => self.todos.selection_up(),
+                    Key::Char('o') => {
+                        self.todos.insert(Default::default());
+                        self.set_mode(Mode::Insert)?;
+                    }
+                    Key::Char('a') | Key::Char('A') => self.set_mode(Mode::Insert)?,
+                    Key::Char(' ') => self.todos.toggle_current(),
+                    // dd
+                    Key::Char('d') => {
+                        if let Key::Char('d') = inputs.next().unwrap()? {
+                            self.todos.register = self.todos.remove_current()
+                        }
+                    }
+                    Key::Char('p') => {
+                        if self.todos.register.is_some() {
+                            self.todos.insert(self.todos.register.clone().unwrap());
+                        }
+                    }
+                    _ => (),
+                },
+                Mode::Insert => match input {
+                    Key::Char('\n') | Key::Esc => self.set_mode(Mode::Normal)?,
+                    Key::Backspace => self.todos.current_pop(),
+                    Key::Char(x) => self.todos.append_to_current(x),
+                    _ => (),
+                },
+            };
         }
-        self.mode = Mode::Normal;
-    }
-
-    pub fn remove_current(&mut self) -> Option<Todo> {
-        if self.todos.is_empty() {
-            return None;
-        }
-        let index = self.selected;
-        self.selected = index.min(self.todos.len() - 1);
-        return Some(self.todos.remove(index));
-    }
-
-    pub fn toggle_current(&mut self) {
-        self.todos[self.selected].done = !self.todos[self.selected].done;
-    }
-
-    fn current(&self) -> &Todo {
-        &self.todos[self.selected]
-    }
-
-    pub fn set_mode(
-        &mut self,
-        mode: Mode,
-        term: &mut Terminal<impl Backend>,
-    ) -> Result<(), io::Error> {
-        match mode {
-            Mode::Insert => term.show_cursor()?,
-            Mode::Normal => {
-                if self.current().text.is_empty() {
-                    self.remove_current();
-                    self.selected = self.selected.saturating_sub(1);
-                }
-                term.hide_cursor()?
-            }
-        };
-        self.mode = mode;
         Ok(())
     }
 
-    pub fn append_to_current(&mut self, chr: char) {
-        self.todos[self.selected].text.push(chr);
+    fn set_mode(&mut self, mode: Mode) -> Result<(), io::Error> {
+        match mode {
+            Mode::Insert => self.terminal.show_cursor()?,
+            Mode::Normal => {
+                self.todos.normal_mode();
+                self.terminal.hide_cursor()?
+            }
+        };
+        self.input_mode = mode;
+        Ok(())
     }
+}
 
-    pub fn current_pop(&mut self) {
-        self.todos[self.selected].text.pop();
-    }
-
-    pub fn persist(self) {
-        let string = serde_json::to_string(&self.todos).unwrap();
-        std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(JSON_PATH)
-            .ok()
-            .or_else(|| panic!("Can’t save todos to JSON. Dumping raw data:\n{}", string))
-            .map(|mut f| f.write(string.as_bytes()));
-    }
+fn refresh(terminal: &mut Terminal, todos: &TodoList) -> Result<(), io::Error> {
+    terminal.draw(|mut frame| {
+        let size = frame.size();
+        let block = Block::default().title(" t r a c c ").borders(Borders::ALL);
+        SelectableList::default()
+            .block(block)
+            .items(&todos.printable_todos())
+            .select(Some(todos.selected))
+            .highlight_style(Style::default().fg(Color::LightGreen))
+            .highlight_symbol(">")
+            .render(&mut frame, size);
+    })?;
+    Ok(())
 }
