@@ -17,4 +17,3 @@ fn main() -> Result<(), io::Error> {
     let mut tracc = Tracc::new(terminal);
     tracc.run()
 }
-

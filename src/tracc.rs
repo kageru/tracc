@@ -54,7 +54,7 @@ impl Tracc {
                     Key::Char('j') => self.todos.selection_down(),
                     Key::Char('k') => self.todos.selection_up(),
                     Key::Char('o') => {
-                        self.todos.insert(Default::default());
+                        self.todos.insert(Default::default(), None);
                         self.set_mode(Mode::Insert)?;
                     }
                     Key::Char('a') | Key::Char('A') => self.set_mode(Mode::Insert)?,
@@ -62,14 +62,10 @@ impl Tracc {
                     // dd
                     Key::Char('d') => {
                         if let Key::Char('d') = inputs.next().unwrap()? {
-                            self.todos.register = self.todos.remove_current()
+                            self.todos.remove_current()
                         }
                     }
-                    Key::Char('p') => {
-                        if self.todos.register.is_some() {
-                            self.todos.insert(self.todos.register.clone().unwrap());
-                        }
-                    }
+                    Key::Char('p') => self.todos.paste(),
                     Key::Char('\t') => {
                         self.focus = match self.focus {
                             Focus::Top => Focus::Bottom,
@@ -80,7 +76,7 @@ impl Tracc {
                 },
                 Mode::Insert => match input {
                     Key::Char('\n') | Key::Esc => self.set_mode(Mode::Normal)?,
-                    Key::Backspace => self.todos.current_pop(),
+                    Key::Backspace => self.todos.backspace(),
                     Key::Char(x) => self.todos.append_to_current(x),
                     _ => (),
                 },
@@ -161,4 +157,16 @@ fn persist_todos(todos: &TodoList, path: &str) {
         .ok()
         .or_else(|| panic!("Can’t save todos to JSON. Dumping raw data:\n{}", string))
         .map(|mut f| f.write(string.as_bytes()));
+}
+
+pub trait ListView<T: std::fmt::Display> {
+    fn printable(&self) -> Vec<String>;
+    fn selection_up(&mut self);
+    fn selection_down(&mut self);
+    fn insert<P>(&mut self, todo: T, position: P) where P: Into<Option<usize>>;
+    fn paste(&mut self);
+    fn remove_current(&mut self);
+    fn backspace(&mut self);
+    fn append_to_current(&mut self, chr: char);
+    fn normal_mode(&mut self);
 }
