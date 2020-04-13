@@ -1,104 +1,150 @@
+use super::tracc::ListView;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
 use std::fmt;
 use std::fs::File;
 use std::io::BufReader;
-use time::Time;
+use time::OffsetDateTime;
 
 pub struct TimeSheet {
     pub times: Vec<TimePoint>,
     pub selected: usize,
     pub register: Option<TimePoint>,
+    pub editing_time: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TimePoint {
     text: String,
-    time: Time,
+    time: OffsetDateTime,
 }
 
 impl TimePoint {
     pub fn new(text: &str) -> Self {
         Self {
             text: String::from(text),
-            time: Time::now(),
+            time: OffsetDateTime::now_local(),
         }
     }
 }
 
 impl fmt::Display for TimePoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[{}] {}", self.time.format("%H:%M"), self.text)
+        write!(
+            f,
+            "[{}] {}",
+            self.time
+                .to_offset(time::UtcOffset::current_local_offset())
+                .format("%H:%M"),
+            self.text
+        )
     }
 }
 
+fn read_times(path: &str) -> Option<Vec<TimePoint>> {
+    File::open(path)
+        .ok()
+        .map(|f| BufReader::new(f))
+        .and_then(|r| from_reader(r).ok())
+}
+
 impl TimeSheet {
-    pub fn new() -> Self {
+    pub fn open_or_create(path: &str) -> Self {
         Self {
-            times: vec![
-                TimePoint::new("A test value"),
-                TimePoint::new("A second test value"),
-            ],
+            times: read_times(path).unwrap_or(vec![TimePoint::new("Did something")]),
             selected: 0,
             register: None,
+            editing_time: false,
         }
     }
 
     pub fn printable(&self) -> Vec<String> {
         self.times.iter().map(TimePoint::to_string).collect()
     }
+
+    fn current(&self) -> &TimePoint {
+        &self.times[self.selected]
+    }
+
+    pub fn time_by_tasks(&self) -> String {
+        let mut time_by_task = std::collections::HashMap::new();
+        let durations = self
+            .times
+            //.iter()
+            //.tuple_windows()
+            .windows(2)
+            .map(|ts| {
+                let prev = &ts[0];
+                let next = &ts[1];
+                let diff = next.time - prev.time;
+                (prev.text.clone(), diff)
+            });
+        //.fold(
+        //std::collections::HashMap::new(),
+        //|mut map, (text, duration)| {
+        // *map.entry(text).or_insert(time::Duration::zero()) += duration;
+        // map
+        //},
+        //);
+        for (text, duration) in durations {
+            *time_by_task.entry(text).or_insert(time::Duration::zero()) += duration;
+        }
+        let mut times: Vec<_> = time_by_task
+            .into_iter()
+            .map(|(text, duration)| format!("{}: {}", text, format_duration(&duration)))
+            .collect();
+        times.sort();
+        times.join("; ")
+    }
+
+    pub fn sum_as_str(&self) -> String {
+        let total = self
+            .times
+            .windows(2)
+            .fold(time::Duration::zero(), |total, ts| {
+                let last = ts[0].time;
+                let next = ts[1].time;
+                total + (next - last)
+            });
+        format_duration(&total)
+    }
 }
-/*
-impl TimeSheet {
-    pub fn selection_down(&mut self) {
-        self.selected = (self.selected + 1).min(self.todos.len().saturating_sub(1));
+
+fn format_duration(d: &time::Duration) -> String {
+    format!("{}:{:02}", d.whole_hours(), d.whole_minutes().max(1) % 60)
+}
+
+impl ListView<TimePoint> for TimeSheet {
+    fn selection_pointer(&mut self) -> &mut usize {
+        &mut self.selected
     }
 
-    pub fn selection_up(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
+    fn list(&mut self) -> &mut Vec<TimePoint> {
+        &mut self.times
     }
 
-    pub fn insert(&mut self, todo: Todo) {
-        if self.selected == self.todos.len().saturating_sub(1) {
-            self.todos.push(todo);
-            self.selected = self.todos.len() - 1;
-        } else {
-            self.todos.insert(self.selected + 1, todo);
-            self.selected += 1;
-        }
+    fn register(&mut self) -> &mut Option<TimePoint> {
+        &mut self.register
     }
 
-    pub fn remove_current(&mut self) -> Option<Todo> {
-        if self.todos.is_empty() {
-            return None;
-        }
-        let index = self.selected;
-        self.selected = index.min(self.todos.len().saturating_sub(2));
-        return Some(self.todos.remove(index));
-    }
-
-    pub fn toggle_current(&mut self) {
-        self.todos[self.selected].done = !self.todos[self.selected].done;
-    }
-
-    fn current(&self) -> &Todo {
-        &self.todos[self.selected]
-    }
-
-    pub fn normal_mode(&mut self) {
+    fn normal_mode(&mut self) {
         if self.current().text.is_empty() {
             self.remove_current();
             self.selected = self.selected.saturating_sub(1);
         }
+        self.times.sort_by_key(|t| t.time);
     }
 
-    pub fn append_to_current(&mut self, chr: char) {
-        self.todos[self.selected].text.push(chr);
+    fn toggle_current(&mut self) {
+        self.editing_time = !self.editing_time;
     }
 
-    pub fn current_pop(&mut self) {
-        self.todos[self.selected].text.pop();
+    fn append_to_current(&mut self, chr: char) {
+        self.times[self.selected].text.push(chr);
     }
 
+    fn backspace(&mut self) {
+        self.times[self.selected].text.pop();
+    }
 }
-*/

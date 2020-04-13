@@ -3,9 +3,9 @@ use std::io;
 use termion::raw::IntoRawMode;
 use tui::backend::TermionBackend;
 use tui::Terminal;
+mod timesheet;
 mod todolist;
 mod tracc;
-mod timesheet;
 use tracc::Tracc;
 
 fn main() -> Result<(), io::Error> {
