@@ -45,6 +45,15 @@ impl Tracc {
     }
 
     pub fn run(&mut self) -> Result<(), io::Error> {
+        macro_rules! with_focused {
+            ($action: expr $(, $arg: expr)*) => {
+                match self.focus {
+                    Focus::Top => $action(&mut self.todos, $($arg,)*),
+                    Focus::Bottom => $action(&mut self.times, $($arg,)*),
+                }
+            };
+        };
+
         let mut inputs = io::stdin().keys();
         loop {
             self.refresh()?;
@@ -53,39 +62,21 @@ impl Tracc {
             match self.input_mode {
                 Mode::Normal => match input {
                     Key::Char('q') => break,
-                    Key::Char('j') => match self.focus {
-                        Focus::Top => self.todos.selection_down(),
-                        Focus::Bottom => self.times.selection_down(),
-                    },
-                    Key::Char('k') => match self.focus {
-                        Focus::Top => self.todos.selection_up(),
-                        Focus::Bottom => self.times.selection_up(),
-                    },
+                    Key::Char('j') => with_focused!(ListView::selection_down),
+                    Key::Char('k') => with_focused!(ListView::selection_up),
                     Key::Char('o') => {
-                        match self.focus {
-                            Focus::Top => self.todos.insert(Default::default(), None),
-                            Focus::Bottom => self.times.insert(TimePoint::new(""), None),
-                        }
+                        with_focused!(ListView::insert, Default::default(), None);
                         self.set_mode(Mode::Insert)?;
                     }
                     Key::Char('a') | Key::Char('A') => self.set_mode(Mode::Insert)?,
-                    Key::Char(' ') => match self.focus {
-                        Focus::Top => self.todos.toggle_current(),
-                        Focus::Bottom => self.times.toggle_current(),
-                    },
+                    Key::Char(' ') => with_focused!(ListView::toggle_current),
                     // dd
                     Key::Char('d') => {
                         if let Key::Char('d') = inputs.next().unwrap()? {
-                            match self.focus {
-                                Focus::Top => self.todos.remove_current(),
-                                Focus::Bottom => self.times.remove_current(),
-                            }
+                            with_focused!(ListView::remove_current)
                         }
                     }
-                    Key::Char('p') => match self.focus {
-                        Focus::Top => self.todos.paste(),
-                        Focus::Bottom => self.times.paste(),
-                    },
+                    Key::Char('p') => with_focused!(ListView::paste),
                     Key::Char('\t') => {
                         self.focus = match self.focus {
                             Focus::Top => Focus::Bottom,
@@ -96,14 +87,8 @@ impl Tracc {
                 },
                 Mode::Insert => match input {
                     Key::Char('\n') | Key::Esc => self.set_mode(Mode::Normal)?,
-                    Key::Backspace => match self.focus {
-                        Focus::Top => self.todos.backspace(),
-                        Focus::Bottom => self.times.backspace(),
-                    },
-                    Key::Char(x) => match self.focus {
-                        Focus::Top => self.todos.append_to_current(x),
-                        Focus::Bottom => self.times.append_to_current(x),
-                    },
+                    Key::Backspace => with_focused!(ListView::backspace),
+                    Key::Char(x) => with_focused!(ListView::append_to_current, x),
                     _ => (),
                 },
             };

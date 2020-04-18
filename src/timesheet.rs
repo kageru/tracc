@@ -2,6 +2,7 @@ use super::tracc::ListView;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
+use std::default;
 use std::fmt;
 use std::fs::File;
 use std::io::BufReader;
@@ -39,6 +40,12 @@ impl fmt::Display for TimePoint {
                 .format("%H:%M"),
             self.text
         )
+    }
+}
+
+impl default::Default for TimePoint {
+    fn default() -> Self {
+        TimePoint::new("")
     }
 }
 
