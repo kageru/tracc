@@ -94,10 +94,10 @@ impl TimeSheet {
     pub fn sum_as_str(&self) -> String {
         let total = self
             .times
-            .windows(2)
-            .fold(time::Duration::zero(), |total, ts| {
-                let last = ts[0].time;
-                let next = ts[1].time;
+            .iter()
+            .map(|tp| tp.time)
+            .tuple_windows()
+            .fold(time::Duration::zero(), |total, (last, next)| {
                 total + (next - last)
             });
         format_duration(&total)
