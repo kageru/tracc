@@ -75,34 +75,20 @@ impl TimeSheet {
     }
 
     pub fn time_by_tasks(&self) -> String {
-        let mut time_by_task = std::collections::HashMap::new();
-        let durations = self
-            .times
-            //.iter()
-            //.tuple_windows()
-            .windows(2)
-            .map(|ts| {
-                let prev = &ts[0];
-                let next = &ts[1];
-                let diff = next.time - prev.time;
-                (prev.text.clone(), diff)
-            });
-        //.fold(
-        //std::collections::HashMap::new(),
-        //|mut map, (text, duration)| {
-        // *map.entry(text).or_insert(time::Duration::zero()) += duration;
-        // map
-        //},
-        //);
-        for (text, duration) in durations {
-            *time_by_task.entry(text).or_insert(time::Duration::zero()) += duration;
-        }
-        let mut times: Vec<_> = time_by_task
+        self.times
+            .iter()
+            .tuple_windows()
+            .map(|(prev, next)| (prev.text.clone(), next.time - prev.time))
+            .fold(
+                std::collections::BTreeMap::new(),
+                |mut map, (text, duration)| {
+                    *map.entry(text).or_insert(time::Duration::zero()) += duration;
+                    map
+                },
+            )
             .into_iter()
             .map(|(text, duration)| format!("{}: {}", text, format_duration(&duration)))
-            .collect();
-        times.sort();
-        times.join("; ")
+            .join(" | ")
     }
 
     pub fn sum_as_str(&self) -> String {

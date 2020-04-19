@@ -8,6 +8,7 @@ edition = "2018"
 tui = "0.8.0"
 termion = "1.5"
 serde_json = "1"
+itertools = "0.9"
 serde = { version = "1", features = ["derive"] }
 time = { version = "0.2.9", features = ["serde"] }
-itertools = "0.9"
+#cmd_lib = "0.7.8"

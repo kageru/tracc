@@ -1,4 +1,4 @@
-use super::timesheet::{TimePoint, TimeSheet};
+use super::timesheet::TimeSheet;
 use super::todolist::TodoList;
 use std::default::Default;
 use std::fmt;
@@ -70,12 +70,7 @@ impl Tracc {
                     }
                     Key::Char('a') | Key::Char('A') => self.set_mode(Mode::Insert)?,
                     Key::Char(' ') => with_focused!(ListView::toggle_current),
-                    // dd
-                    Key::Char('d') => {
-                        if let Key::Char('d') = inputs.next().unwrap()? {
-                            with_focused!(ListView::remove_current)
-                        }
-                    }
+                    Key::Char('d') => with_focused!(ListView::remove_current),
                     Key::Char('p') => with_focused!(ListView::paste),
                     Key::Char('\t') => {
                         self.focus = match self.focus {
@@ -142,9 +137,9 @@ impl Tracc {
                 .direction(Direction::Vertical)
                 .constraints(
                     [
-                        Constraint::Percentage(42),
-                        Constraint::Percentage(42),
-                        Constraint::Percentage(16),
+                        Constraint::Percentage(40),
+                        Constraint::Percentage(40),
+                        Constraint::Percentage(20),
                     ]
                     .as_ref(),
                 )
@@ -153,12 +148,13 @@ impl Tracc {
                 .render(&mut frame, chunks[0]);
             selectable_list(" 🕑 ", &printable_times, bottom_focus).render(&mut frame, chunks[1]);
             Paragraph::new(
-                [Text::raw(format!(
-                    "Sum for today: {}\n{}",
-                    total_time, times
-                ))]
+                [
+                    Text::raw(format!("Sum for today: {}\n", total_time)),
+                    Text::raw(times)
+                ]
                 .iter(),
             )
+            .wrap(true)
             .block(Block::default().borders(Borders::ALL))
             .render(&mut frame, chunks[2]);
         })?;
