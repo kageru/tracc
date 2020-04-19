@@ -1,13 +1,12 @@
+use super::layout;
+use super::listview::ListView;
 use super::timesheet::TimeSheet;
 use super::todolist::TodoList;
 use std::default::Default;
-use std::fmt;
 use std::io::{self, Write};
 use termion::event::Key;
 use termion::input::TermRead;
 use tui::backend::TermionBackend;
-use tui::layout::*;
-use tui::style::{Color, Style};
 use tui::widgets::*;
 
 type Terminal = tui::Terminal<TermionBackend<termion::raw::RawTerminal<io::Stdout>>>;
@@ -107,56 +106,32 @@ impl Tracc {
     }
 
     fn refresh(&mut self) -> Result<(), io::Error> {
-        fn selectable_list<'a, C: AsRef<str>>(
-            title: &'a str,
-            content: &'a [C],
-            selected: Option<usize>,
-        ) -> SelectableList<'a> {
-            SelectableList::default()
-                .block(
-                    Block::default()
-                        .title(title)
-                        .borders(Borders::TOP | Borders::RIGHT | Borders::LEFT),
-                )
-                .items(content)
-                .select(selected)
-                .highlight_style(Style::default().fg(Color::LightGreen))
-                .highlight_symbol(">")
-        }
-
-        let printable_todos = self.todos.printable();
-        let top_focus = Some(self.todos.selected).filter(|_| self.focus == Focus::Top);
-        let printable_times = self.times.printable();
-        let bottom_focus = Some(self.times.selected).filter(|_| self.focus == Focus::Bottom);
-        let total_time = self.times.sum_as_str();
-        let times = self.times.time_by_tasks();
+        let summary_content = [Text::raw(format!(
+            "Sum for today: {}\n{}",
+            self.times.sum_as_str(),
+            self.times.time_by_tasks()
+        ))];
+        let mut summary = Paragraph::new(summary_content.iter())
+            .wrap(true)
+            .block(Block::default().borders(Borders::ALL));
+        let todos = self.todos.printable();
+        let mut todolist = layout::selectable_list(
+            " t r a c c ",
+            &todos,
+            Some(self.todos.selected).filter(|_| self.focus == Focus::Top),
+        );
+        let times = self.times.printable();
+        let mut timelist = layout::selectable_list(
+            " 🕑 ",
+            &times,
+            Some(self.times.selected).filter(|_| self.focus == Focus::Bottom),
+        );
 
         self.terminal.draw(|mut frame| {
-            let size = frame.size();
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(
-                    [
-                        Constraint::Percentage(40),
-                        Constraint::Percentage(40),
-                        Constraint::Percentage(20),
-                    ]
-                    .as_ref(),
-                )
-                .split(size);
-            selectable_list(" t r a c c ", &printable_todos, top_focus)
-                .render(&mut frame, chunks[0]);
-            selectable_list(" 🕑 ", &printable_times, bottom_focus).render(&mut frame, chunks[1]);
-            Paragraph::new(
-                [
-                    Text::raw(format!("Sum for today: {}\n", total_time)),
-                    Text::raw(times),
-                ]
-                .iter(),
-            )
-            .wrap(true)
-            .block(Block::default().borders(Borders::ALL))
-            .render(&mut frame, chunks[2]);
+            let chunks = layout::layout(frame.size());
+            todolist.render(&mut frame, chunks[0]);
+            timelist.render(&mut frame, chunks[1]);
+            summary.render(&mut frame, chunks[2]);
         })?;
         Ok(())
     }
@@ -177,59 +152,4 @@ fn persist_state(todos: &TodoList, times: &TimeSheet) {
     write(JSON_PATH_TODO, todos);
     let times = serde_json::to_string(&times.times).unwrap();
     write(JSON_PATH_TIME, times);
-}
-
-pub trait ListView<T: fmt::Display + Clone> {
-    // get properties of implementations
-    fn selection_pointer(&mut self) -> &mut usize;
-    fn list(&mut self) -> &mut Vec<T>;
-    fn register(&mut self) -> &mut Option<T>;
-
-    // specific input handling
-    fn backspace(&mut self);
-    fn append_to_current(&mut self, chr: char);
-    fn normal_mode(&mut self);
-    fn toggle_current(&mut self);
-
-    // selection manipulation
-    fn selection_up(&mut self) {
-        *self.selection_pointer() = self.selection_pointer().saturating_sub(1);
-    }
-
-    fn selection_down(&mut self) {
-        *self.selection_pointer() =
-            (*self.selection_pointer() + 1).min(self.list().len().saturating_sub(1));
-    }
-
-    // adding/removing elements
-    fn insert(&mut self, item: T, position: Option<usize>) {
-        let pos = position.unwrap_or(*self.selection_pointer());
-        if pos == self.list().len().saturating_sub(1) {
-            self.list().push(item);
-            *self.selection_pointer() = self.list().len() - 1;
-        } else {
-            self.list().insert(pos + 1, item);
-            *self.selection_pointer() = pos + 1;
-        }
-    }
-
-    fn remove_current(&mut self) {
-        if self.list().is_empty() {
-            return;
-        }
-        let index = *self.selection_pointer();
-        *self.selection_pointer() = index.min(self.list().len().saturating_sub(2));
-        *self.register() = self.list().remove(index).into();
-    }
-
-    fn paste(&mut self) {
-        if let Some(item) = self.register().clone() {
-            self.insert(item, None);
-        }
-    }
-
-    // printing
-    fn printable(&mut self) -> Vec<String> {
-        self.list().iter().map(T::to_string).collect()
-    }
 }
