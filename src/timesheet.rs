@@ -2,11 +2,12 @@ use super::tracc::ListView;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
+use std::collections;
 use std::default;
 use std::fmt;
-use std::fs::File;
-use std::io::BufReader;
-use time::OffsetDateTime;
+use std::fs;
+use std::io;
+use time::{Duration, OffsetDateTime};
 
 pub struct TimeSheet {
     pub times: Vec<TimePoint>,
@@ -50,16 +51,16 @@ impl default::Default for TimePoint {
 }
 
 fn read_times(path: &str) -> Option<Vec<TimePoint>> {
-    File::open(path)
+    fs::File::open(path)
         .ok()
-        .map(|f| BufReader::new(f))
+        .map(io::BufReader::new)
         .and_then(|r| from_reader(r).ok())
 }
 
 impl TimeSheet {
     pub fn open_or_create(path: &str) -> Self {
         Self {
-            times: read_times(path).unwrap_or(vec![TimePoint::new("Did something")]),
+            times: read_times(path).unwrap_or_else(|| vec![TimePoint::new("Did something")]),
             selected: 0,
             register: None,
             editing_time: false,
@@ -79,13 +80,10 @@ impl TimeSheet {
             .iter()
             .tuple_windows()
             .map(|(prev, next)| (prev.text.clone(), next.time - prev.time))
-            .fold(
-                std::collections::BTreeMap::new(),
-                |mut map, (text, duration)| {
-                    *map.entry(text).or_insert(time::Duration::zero()) += duration;
-                    map
-                },
-            )
+            .fold(collections::BTreeMap::new(), |mut map, (text, duration)| {
+                *map.entry(text).or_insert_with(Duration::zero) += duration;
+                map
+            })
             .into_iter()
             .map(|(text, duration)| format!("{}: {}", text, format_duration(&duration)))
             .join(" | ")
@@ -97,14 +95,14 @@ impl TimeSheet {
             .iter()
             .map(|tp| tp.time)
             .tuple_windows()
-            .fold(time::Duration::zero(), |total, (last, next)| {
+            .fold(Duration::zero(), |total, (last, next)| {
                 total + (next - last)
             });
         format_duration(&total)
     }
 }
 
-fn format_duration(d: &time::Duration) -> String {
+fn format_duration(d: &Duration) -> String {
     format!("{}:{:02}", d.whole_hours(), d.whole_minutes().max(1) % 60)
 }
 

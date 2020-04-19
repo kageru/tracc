@@ -2,8 +2,8 @@ use crate::tracc::ListView;
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
 use std::fmt;
-use std::fs::File;
-use std::io::BufReader;
+use std::fs;
+use std::io;
 
 pub struct TodoList {
     pub todos: Vec<Todo>,
@@ -13,7 +13,6 @@ pub struct TodoList {
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Todo {
-    // We use owned strings here because they’re easier to manipulate when editing.
     text: String,
     done: bool,
 }
@@ -34,16 +33,16 @@ impl fmt::Display for Todo {
 }
 
 fn read_todos(path: &str) -> Option<Vec<Todo>> {
-    File::open(path)
+    fs::File::open(path)
         .ok()
-        .map(|f| BufReader::new(f))
+        .map(io::BufReader::new)
         .and_then(|r| from_reader(r).ok())
 }
 
 impl TodoList {
     pub fn open_or_create(path: &str) -> Self {
         Self {
-            todos: read_todos(path).unwrap_or(vec![Todo::new("This is a list entry")]),
+            todos: read_todos(path).unwrap_or_else(|| vec![Todo::new("This is a list entry")]),
             selected: 0,
             register: None,
         }

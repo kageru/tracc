@@ -99,7 +99,7 @@ impl Tracc {
             Mode::Normal => {
                 self.todos.normal_mode();
                 self.times.normal_mode();
-                self.terminal.hide_cursor()?
+                self.terminal.hide_cursor()?;
             }
         };
         self.input_mode = mode;
@@ -119,7 +119,7 @@ impl Tracc {
                         .borders(Borders::TOP | Borders::RIGHT | Borders::LEFT),
                 )
                 .items(content)
-                .select(selected.into())
+                .select(selected)
                 .highlight_style(Style::default().fg(Color::LightGreen))
                 .highlight_symbol(">")
         }
@@ -150,7 +150,7 @@ impl Tracc {
             Paragraph::new(
                 [
                     Text::raw(format!("Sum for today: {}\n", total_time)),
-                    Text::raw(times)
+                    Text::raw(times),
                 ]
                 .iter(),
             )
@@ -223,10 +223,8 @@ pub trait ListView<T: fmt::Display + Clone> {
     }
 
     fn paste(&mut self) {
-        let register = self.register().clone();
-        match register {
-            Some(item) => self.insert(item, None),
-            None => (),
+        if let Some(item) = self.register().clone() {
+            self.insert(item, None);
         }
     }
 
