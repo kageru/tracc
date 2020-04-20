@@ -7,7 +7,7 @@ use std::default;
 use std::fmt;
 use std::fs;
 use std::io;
-use time::{Duration, OffsetDateTime};
+use time::{Duration, OffsetDateTime, Time};
 
 pub struct TimeSheet {
     pub times: Vec<TimePoint>,
@@ -19,28 +19,21 @@ pub struct TimeSheet {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TimePoint {
     text: String,
-    time: OffsetDateTime,
+    time: Time,
 }
 
 impl TimePoint {
     pub fn new(text: &str) -> Self {
         Self {
             text: String::from(text),
-            time: OffsetDateTime::now_local(),
+            time: OffsetDateTime::now_local().time(),
         }
     }
 }
 
 impl fmt::Display for TimePoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "[{}] {}",
-            self.time
-                .to_offset(time::UtcOffset::current_local_offset())
-                .format("%H:%M"),
-            self.text
-        )
+        write!(f, "[{}] {}", self.time.format("%H:%M"), self.text)
     }
 }
 
@@ -80,6 +73,9 @@ impl TimeSheet {
             .iter()
             .tuple_windows()
             .map(|(prev, next)| (prev.text.clone(), next.time - prev.time))
+            // Fold into a map to group by description.
+            // I use a BTreeMap because I need a stable output order for the iterator
+            // (otherwise the summary list will jump around on every input).
             .fold(collections::BTreeMap::new(), |mut map, (text, duration)| {
                 *map.entry(text).or_insert_with(Duration::zero) += duration;
                 map
