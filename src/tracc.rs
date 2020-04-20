@@ -69,7 +69,12 @@ impl Tracc {
                     }
                     Key::Char('a') | Key::Char('A') => self.set_mode(Mode::Insert)?,
                     Key::Char(' ') => with_focused!(ListView::toggle_current),
-                    Key::Char('d') => with_focused!(ListView::remove_current),
+                    // dd
+                    Key::Char('d') => {
+                        if let Some(Ok(Key::Char('d'))) = inputs.next() {
+                            with_focused!(ListView::remove_current);
+                        }
+                    }
                     Key::Char('p') => with_focused!(ListView::paste),
                     Key::Char('\t') => {
                         self.focus = match self.focus {
