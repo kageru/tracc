@@ -53,7 +53,7 @@ fn read_times(path: &str) -> Option<Vec<TimePoint>> {
 impl TimeSheet {
     pub fn open_or_create(path: &str) -> Self {
         Self {
-            times: read_times(path).unwrap_or_else(|| vec![TimePoint::new("Did something")]),
+            times: read_times(path).unwrap_or_else(|| vec![TimePoint::new("start")]),
             selected: 0,
             register: None,
             editing_time: false,
@@ -71,6 +71,7 @@ impl TimeSheet {
     pub fn time_by_tasks(&self) -> String {
         self.times
             .iter()
+            .chain(std::iter::once(&TimePoint::new("end")))
             .tuple_windows()
             .map(|(prev, next)| (prev.text.clone(), next.time - prev.time))
             // Fold into a map to group by description.
@@ -81,6 +82,7 @@ impl TimeSheet {
                 map
             })
             .into_iter()
+            .filter(|(_, duration)| duration.whole_seconds() > 1)
             .map(|(text, duration)| format!("{}: {}", text, format_duration(&duration)))
             .join(" | ")
     }
@@ -90,6 +92,7 @@ impl TimeSheet {
             .times
             .iter()
             .map(|tp| tp.time)
+            .chain(std::iter::once(OffsetDateTime::now_local().time()))
             .tuple_windows()
             .fold(Duration::zero(), |total, (last, next)| {
                 total + (next - last)
