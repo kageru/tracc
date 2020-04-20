@@ -9,6 +9,8 @@ mod timesheet;
 mod todolist;
 mod tracc;
 use tracc::Tracc;
+#[macro_use]
+extern crate lazy_static;
 
 fn main() -> Result<(), io::Error> {
     let stdout = io::stdout().into_raw_mode()?;

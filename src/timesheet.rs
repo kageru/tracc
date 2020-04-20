@@ -13,6 +13,9 @@ pub struct TimeSheet {
 }
 
 const PAUSE_TEXTS: [&str; 3] = ["lunch", "mittag", "pause"];
+lazy_static! {
+    static ref OVERRIDE_REGEX: regex::Regex = regex::Regex::new("\\[(.*)\\]").unwrap();
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TimePoint {
@@ -48,6 +51,20 @@ fn read_times(path: &str) -> Option<Vec<TimePoint>> {
         .and_then(|r| from_reader(r).ok())
 }
 
+/**
+ * If a time text contains "[something]",
+ * only use the message inside the brackets.
+ */
+fn effective_text(s: String) -> String {
+    OVERRIDE_REGEX
+        .captures(&s)
+        // index 0 is the entire string
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str())
+        .unwrap_or(&s)
+        .to_string()
+}
+
 impl TimeSheet {
     pub fn open_or_create(path: &str) -> Self {
         Self {
@@ -76,7 +93,8 @@ impl TimeSheet {
             // I use a BTreeMap because I need a stable output order for the iterator
             // (otherwise the summary list will jump around on every input).
             .fold(collections::BTreeMap::new(), |mut map, (text, duration)| {
-                *map.entry(text).or_insert_with(Duration::zero) += duration;
+                *map.entry(effective_text(text))
+                    .or_insert_with(Duration::zero) += duration;
                 map
             })
             .into_iter()
