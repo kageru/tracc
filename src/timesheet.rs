@@ -2,11 +2,7 @@ use super::listview::ListView;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
-use std::collections;
-use std::default;
-use std::fmt;
-use std::fs;
-use std::io;
+use std::{collections, default, fmt, fs, io, iter};
 use time::{Duration, OffsetDateTime, Time};
 
 pub struct TimeSheet {
@@ -15,6 +11,8 @@ pub struct TimeSheet {
     pub register: Option<TimePoint>,
     pub editing_time: bool,
 }
+
+const PAUSE_TEXTS: [&str; 3] = ["lunch", "mittag", "pause"];
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TimePoint {
@@ -68,10 +66,10 @@ impl TimeSheet {
         &self.times[self.selected]
     }
 
-    pub fn time_by_tasks(&self) -> String {
+    fn grouped_times(&self) -> impl Iterator<Item = (String, Duration)> {
         self.times
             .iter()
-            .chain(std::iter::once(&TimePoint::new("end")))
+            .chain(iter::once(&TimePoint::new("end")))
             .tuple_windows()
             .map(|(prev, next)| (prev.text.clone(), next.time - prev.time))
             // Fold into a map to group by description.
@@ -82,21 +80,19 @@ impl TimeSheet {
                 map
             })
             .into_iter()
-            .filter(|(_, duration)| duration.whole_seconds() > 1)
+            .filter(|(text, _)| !PAUSE_TEXTS.contains(&text.as_str()))
+    }
+
+    pub fn time_by_tasks(&self) -> String {
+        self.grouped_times()
             .map(|(text, duration)| format!("{}: {}", text, format_duration(&duration)))
             .join(" | ")
     }
 
     pub fn sum_as_str(&self) -> String {
         let total = self
-            .times
-            .iter()
-            .map(|tp| tp.time)
-            .chain(std::iter::once(OffsetDateTime::now_local().time()))
-            .tuple_windows()
-            .fold(Duration::zero(), |total, (last, next)| {
-                total + (next - last)
-            });
+            .grouped_times()
+            .fold(Duration::zero(), |total, (_, d)| total + d);
         format_duration(&total)
     }
 }
