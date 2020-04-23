@@ -49,6 +49,11 @@ pub trait ListView<T: fmt::Display + Clone> {
         }
     }
 
+    fn yank(&mut self) {
+        let index = *self.selection_pointer();
+        *self.register() = self.list()[index].clone().into();
+    }
+
     // printing
     fn printable(&mut self) -> Vec<String> {
         self.list().iter().map(T::to_string).collect()

@@ -75,6 +75,12 @@ impl Tracc {
                             with_focused!(ListView::remove_current);
                         }
                     }
+                    // yy
+                    Key::Char('y') => {
+                        if let Some(Ok(Key::Char('y'))) = inputs.next() {
+                            with_focused!(ListView::yank);
+                        }
+                    }
                     Key::Char('p') => with_focused!(ListView::paste),
                     Key::Char('\t') => {
                         self.focus = match self.focus {
