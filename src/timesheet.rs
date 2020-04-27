@@ -9,12 +9,12 @@ pub struct TimeSheet {
     pub times: Vec<TimePoint>,
     pub selected: usize,
     pub register: Option<TimePoint>,
+    pub editing_time: bool,
 }
 
 const PAUSE_TEXTS: [&str; 3] = ["lunch", "mittag", "pause"];
-const TIME_FORMAT: &str = "%H:%M";
 lazy_static! {
-    static ref OVERRIDE_REGEX: regex::Regex = regex::Regex::new("\\((.*)\\)").unwrap();
+    static ref OVERRIDE_REGEX: regex::Regex = regex::Regex::new("\\[(.*)\\]").unwrap();
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -25,17 +25,16 @@ pub struct TimePoint {
 
 impl TimePoint {
     pub fn new(text: &str) -> Self {
-        let time = OffsetDateTime::now_local().time();
         Self {
-            time,
-            text: format!("[{}] {}", time.format(TIME_FORMAT), text),
+            text: String::from(text),
+            time: OffsetDateTime::now_local().time(),
         }
     }
 }
 
 impl fmt::Display for TimePoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.text)
+        write!(f, "[{}] {}", self.time.format("%H:%M"), self.text)
     }
 }
 
@@ -72,6 +71,7 @@ impl TimeSheet {
             times: read_times(path).unwrap_or_else(|| vec![TimePoint::new("start")]),
             selected: 0,
             register: None,
+            editing_time: false,
         }
     }
 
@@ -88,12 +88,7 @@ impl TimeSheet {
             .iter()
             .chain(iter::once(&TimePoint::new("end")))
             .tuple_windows()
-            .map(|(prev, next)| {
-                (
-                    prev.text.clone().splitn(2, " ").last().unwrap().to_string(),
-                    next.time - prev.time,
-                )
-            })
+            .map(|(prev, next)| (prev.text.clone(), next.time - prev.time))
             // Fold into a map to group by description.
             // I use a BTreeMap because I need a stable output order for the iterator
             // (otherwise the summary list will jump around on every input).
@@ -108,7 +103,7 @@ impl TimeSheet {
 
     pub fn time_by_tasks(&self) -> String {
         self.grouped_times()
-            .map(|(text, duration)| format!("{} {}", text, format_duration(&duration)))
+            .map(|(text, duration)| format!("{}: {}", text, format_duration(&duration)))
             .join(" | ")
     }
 
@@ -138,24 +133,16 @@ impl ListView<TimePoint> for TimeSheet {
     }
 
     fn normal_mode(&mut self) {
-        let old_text = self.current().text.clone();
-        let parts: Vec<_> = old_text.splitn(2, " ").collect();
-        if parts.len() < 2 {
+        if self.current().text.is_empty() {
             self.remove_current();
             self.selected = self.selected.saturating_sub(1);
-            return;
         }
-        let current = &mut self.times[self.selected];
-        // if we have a parse error, just keep the old time
-        if let Ok(t) = Time::parse(parts[0].replace('[', "").replace(']', ""), TIME_FORMAT) {
-            current.time = t;
-        }
-        current.text = format!("[{}] {}", current.time.format(TIME_FORMAT), parts[1]);
         self.times.sort_by_key(|t| t.time);
     }
 
-    // noop for this
-    fn toggle_current(&mut self) {}
+    fn toggle_current(&mut self) {
+        self.editing_time = !self.editing_time;
+    }
 
     fn append_to_current(&mut self, chr: char) {
         self.times[self.selected].text.push(chr);
