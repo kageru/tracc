@@ -77,6 +77,16 @@ impl TimeSheet {
         self.times.iter().map(TimePoint::to_string).collect()
     }
 
+    /**
+     * Adjust the current time by `minutes` and round the result to a multiple of `minutes`.
+     * This is so I can adjust in steps of 5 but still get nice, even numbers in the output.
+     */
+    pub fn shift_current(&mut self, minutes: i64) {
+        let time = &mut self.times[self.selected].time;
+        let current_minute = time.minute() as i64;
+        *time += Duration::minutes(minutes - current_minute % minutes);
+    }
+
     fn current(&self) -> &TimePoint {
         &self.times[self.selected]
     }

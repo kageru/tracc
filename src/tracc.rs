@@ -69,6 +69,8 @@ impl Tracc {
                     }
                     Key::Char('a') | Key::Char('A') => self.set_mode(Mode::Insert)?,
                     Key::Char(' ') if self.focus == Focus::Top => self.todos.toggle_current(),
+                    Key::Char('-') if self.focus == Focus::Bottom => self.times.shift_current(-5),
+                    Key::Char('+') if self.focus == Focus::Bottom => self.times.shift_current(5),
                     // dd
                     Key::Char('d') => {
                         if let Some(Ok(Key::Char('d'))) = inputs.next() {
