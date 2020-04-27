@@ -68,7 +68,7 @@ impl Tracc {
                         self.set_mode(Mode::Insert)?;
                     }
                     Key::Char('a') | Key::Char('A') => self.set_mode(Mode::Insert)?,
-                    Key::Char(' ') => with_focused!(ListView::toggle_current),
+                    Key::Char(' ') if self.focus == Focus::Top => self.todos.toggle_current(),
                     // dd
                     Key::Char('d') => {
                         if let Some(Ok(Key::Char('d'))) = inputs.next() {

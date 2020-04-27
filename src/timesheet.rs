@@ -9,7 +9,6 @@ pub struct TimeSheet {
     pub times: Vec<TimePoint>,
     pub selected: usize,
     pub register: Option<TimePoint>,
-    pub editing_time: bool,
 }
 
 const PAUSE_TEXTS: [&str; 3] = ["lunch", "mittag", "pause"];
@@ -71,7 +70,6 @@ impl TimeSheet {
             times: read_times(path).unwrap_or_else(|| vec![TimePoint::new("start")]),
             selected: 0,
             register: None,
-            editing_time: false,
         }
     }
 
@@ -138,10 +136,6 @@ impl ListView<TimePoint> for TimeSheet {
             self.selected = self.selected.saturating_sub(1);
         }
         self.times.sort_by_key(|t| t.time);
-    }
-
-    fn toggle_current(&mut self) {
-        self.editing_time = !self.editing_time;
     }
 
     fn append_to_current(&mut self, chr: char) {

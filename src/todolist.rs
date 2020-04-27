@@ -48,6 +48,10 @@ impl TodoList {
         }
     }
 
+    pub fn toggle_current(&mut self) {
+        self.todos[self.selected].done = !self.todos[self.selected].done;
+    }
+
     fn current(&self) -> &Todo {
         &self.todos[self.selected]
     }
@@ -79,9 +83,5 @@ impl ListView<Todo> for TodoList {
 
     fn backspace(&mut self) {
         self.todos[self.selected].text.pop();
-    }
-
-    fn toggle_current(&mut self) {
-        self.todos[self.selected].done = !self.todos[self.selected].done;
     }
 }

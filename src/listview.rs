@@ -10,7 +10,6 @@ pub trait ListView<T: fmt::Display + Clone> {
     fn backspace(&mut self);
     fn append_to_current(&mut self, chr: char);
     fn normal_mode(&mut self);
-    fn toggle_current(&mut self);
 
     // selection manipulation
     fn selection_up(&mut self) {
