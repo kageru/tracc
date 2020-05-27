@@ -50,6 +50,7 @@ impl TodoList {
 
     pub fn toggle_current(&mut self) {
         self.todos[self.selected].done = !self.todos[self.selected].done;
+        self.selected = (self.selected + 1).min(self.todos.len() - 1)
     }
 
     fn current(&self) -> &Todo {
