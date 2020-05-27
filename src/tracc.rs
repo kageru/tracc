@@ -112,6 +112,7 @@ impl Tracc {
                 self.todos.normal_mode();
                 self.times.normal_mode();
                 self.terminal.hide_cursor()?;
+                persist_state(&self.todos, &self.times);
             }
         };
         self.input_mode = mode;
