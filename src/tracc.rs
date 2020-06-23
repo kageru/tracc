@@ -69,7 +69,10 @@ impl Tracc {
                     }
                     Key::Char('a') | Key::Char('A') => self.set_mode(Mode::Insert)?,
                     Key::Char(' ') if self.focus == Focus::Top => self.todos.toggle_current(),
-                    Key::Char('-') if self.focus == Focus::Bottom => self.times.shift_current(-5),
+                    // Subtract only 1 minute because the number is truncated to the next multiple
+                    // of 5 afterwards, so this is effectively a -5.
+                    // See https://git.kageru.moe/kageru/tracc/issues/8
+                    Key::Char('-') if self.focus == Focus::Bottom => self.times.shift_current(-1),
                     Key::Char('+') if self.focus == Focus::Bottom => self.times.shift_current(5),
                     // dd
                     Key::Char('d') => {

@@ -83,8 +83,8 @@ impl TimeSheet {
      */
     pub fn shift_current(&mut self, minutes: i64) {
         let time = &mut self.times[self.selected].time;
-        let current_minute = time.minute() as i64;
-        *time += Duration::minutes(minutes - current_minute % minutes);
+        *time += Duration::minutes(minutes);
+        *time -= Duration::minutes(time.minute() as i64 % 5)
     }
 
     fn current(&self) -> &TimePoint {
