@@ -11,7 +11,9 @@ pub struct TimeSheet {
     pub register: Option<TimePoint>,
 }
 
-const PAUSE_TEXTS: [&str; 3] = ["lunch", "mittag", "pause"];
+const MAIN_PAUSE_TEXT: &str = "pause";
+const PAUSE_TEXTS: [&str; 3] = [MAIN_PAUSE_TEXT, "lunch", "mittag"];
+
 lazy_static! {
     static ref OVERRIDE_REGEX: regex::Regex = regex::Regex::new("\\[(.*)\\]").unwrap();
 }
@@ -55,13 +57,17 @@ fn read_times(path: &str) -> Option<Vec<TimePoint>> {
  * only use the message inside the brackets.
  */
 fn effective_text(s: String) -> String {
-    OVERRIDE_REGEX
+    let text = OVERRIDE_REGEX
         .captures(&s)
         // index 0 is the entire string
         .and_then(|caps| caps.get(1))
         .map(|m| m.as_str())
-        .unwrap_or(&s)
-        .to_string()
+        .unwrap_or(&s);
+    if PAUSE_TEXTS.contains(&text) {
+        MAIN_PAUSE_TEXT
+    } else {
+        text
+    }.to_string()
 }
 
 impl TimeSheet {
@@ -106,7 +112,6 @@ impl TimeSheet {
                 map
             })
             .into_iter()
-            .filter(|(text, _)| !PAUSE_TEXTS.contains(&text.as_str()))
     }
 
     pub fn time_by_tasks(&self) -> String {
@@ -118,6 +123,7 @@ impl TimeSheet {
     pub fn sum_as_str(&self) -> String {
         let total = self
             .grouped_times()
+            .filter(|(text, _)| text != MAIN_PAUSE_TEXT)
             .fold(Duration::zero(), |total, (_, d)| total + d);
         format_duration(&total)
     }
