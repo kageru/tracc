@@ -12,7 +12,7 @@ pub struct TimeSheet {
 }
 
 const MAIN_PAUSE_TEXT: &str = "pause";
-const PAUSE_TEXTS: [&str; 3] = [MAIN_PAUSE_TEXT, "lunch", "mittag"];
+const PAUSE_TEXTS: [&str; 4] = [MAIN_PAUSE_TEXT, "lunch", "mittag", "break"];
 
 lazy_static! {
     static ref OVERRIDE_REGEX: regex::Regex = regex::Regex::new("\\[(.*)\\]").unwrap();
