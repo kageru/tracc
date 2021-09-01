@@ -23,9 +23,9 @@ pub fn layout(r: Rect) -> Vec<Rect> {
         .direction(Direction::Vertical)
         .constraints(
             [
+                Constraint::Percentage(0),
+                Constraint::Percentage(60),
                 Constraint::Percentage(40),
-                Constraint::Percentage(40),
-                Constraint::Percentage(20),
             ]
             .as_ref(),
         )

@@ -39,7 +39,7 @@ impl Tracc {
             times: TimeSheet::open_or_create(JSON_PATH_TIME),
             terminal,
             input_mode: Mode::Normal,
-            focus: Focus::Top,
+            focus: Focus::Bottom,
         }
     }
 
@@ -94,12 +94,6 @@ impl Tracc {
                         }
                     }
                     Key::Char('p') => with_focused!(ListView::paste),
-                    Key::Char('\t') => {
-                        self.focus = match self.focus {
-                            Focus::Top => Focus::Bottom,
-                            Focus::Bottom => Focus::Top,
-                        }
-                    }
                     _ => (),
                 },
                 Mode::Insert => match input {
