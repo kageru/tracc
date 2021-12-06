@@ -51,7 +51,7 @@ impl Tracc {
                     Focus::Bottom => $action(&mut self.times, $($arg,)*),
                 }
             };
-        };
+        }
 
         let mut inputs = io::stdin().keys();
         loop {
@@ -63,6 +63,13 @@ impl Tracc {
                     Key::Char('q') => break,
                     Key::Char('j') => with_focused!(ListView::selection_down),
                     Key::Char('k') => with_focused!(ListView::selection_up),
+                    Key::Char('G') => with_focused!(ListView::selection_first),
+                    // gg
+                    Key::Char('g') => {
+                        if let Some(Ok(Key::Char('g'))) = inputs.next() {
+                            with_focused!(ListView::selection_last);
+                        }
+                    }
                     Key::Char('o') => {
                         with_focused!(ListView::insert, Default::default(), None);
                         self.set_mode(Mode::Insert)?;
