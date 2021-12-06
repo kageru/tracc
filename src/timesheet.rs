@@ -72,9 +72,11 @@ fn effective_text(s: String) -> String {
 
 impl TimeSheet {
     pub fn open_or_create(path: &str) -> Self {
+        let times = read_times(path).unwrap_or_else(|| vec![TimePoint::new("start")]);
+        let selected = times.len().saturating_sub(1);
         Self {
-            times: read_times(path).unwrap_or_else(|| vec![TimePoint::new("start")]),
-            selected: 0,
+            times,
+            selected,
             register: None,
         }
     }
