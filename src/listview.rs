@@ -12,6 +12,10 @@ pub trait ListView<T: fmt::Display + Clone> {
     fn normal_mode(&mut self);
 
     // selection manipulation
+    fn selection_first(&mut self) {
+        *self.selection_pointer() = 0;
+    }
+
     fn selection_up(&mut self) {
         *self.selection_pointer() = self.selection_pointer().saturating_sub(1);
     }
@@ -19,6 +23,10 @@ pub trait ListView<T: fmt::Display + Clone> {
     fn selection_down(&mut self) {
         *self.selection_pointer() =
             (*self.selection_pointer() + 1).min(self.list().len().saturating_sub(1));
+    }
+
+    fn selection_last(&mut self) {
+        *self.selection_pointer() = self.list().len().saturating_sub(1);
     }
 
     // adding/removing elements
