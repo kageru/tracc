@@ -2,7 +2,7 @@ use super::listview::ListView;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
-use std::{collections, default, fmt, fs, io, iter};
+use std::{collections, default, fmt, fs, io};
 use time::{Duration, OffsetDateTime, Time};
 
 pub struct TimeSheet {
@@ -13,6 +13,7 @@ pub struct TimeSheet {
 
 const MAIN_PAUSE_TEXT: &str = "pause";
 const PAUSE_TEXTS: [&str; 4] = [MAIN_PAUSE_TEXT, "lunch", "mittag", "break"];
+const END_TEXT: &str = "end";
 
 lazy_static! {
     static ref OVERRIDE_REGEX: regex::Regex = regex::Regex::new("\\[(.*)\\]").unwrap();
@@ -28,9 +29,13 @@ impl TimePoint {
     pub fn new(text: &str) -> Self {
         Self {
             text: String::from(text),
-            time: OffsetDateTime::now_local().time(),
+            time: now(),
         }
     }
+}
+
+fn now() -> Time {
+    OffsetDateTime::now_local().time()
 }
 
 impl fmt::Display for TimePoint {
@@ -100,9 +105,10 @@ impl TimeSheet {
     }
 
     fn grouped_times(&self) -> collections::BTreeMap<String, Duration> {
+        let last_time = self.times.last();
         self.times
             .iter()
-            .chain(iter::once(&TimePoint::new("end")))
+            .chain(TimeSheet::maybe_end_time(last_time).iter())
             .tuple_windows()
             .map(|(prev, next)| (prev.text.clone(), next.time - prev.time))
             // Fold into a map to group by description.
@@ -113,6 +119,15 @@ impl TimeSheet {
                     .or_insert_with(Duration::zero) += duration;
                 map
             })
+    }
+
+    fn maybe_end_time(last_time: Option<&TimePoint>) -> Option<TimePoint> {
+        match last_time {
+            Some(tp) if PAUSE_TEXTS.contains(&&tp.text[..]) => None,
+            Some(tp) if tp.text == END_TEXT => None,
+            Some(tp) if tp.time > now() => None,
+            _ => Some(TimePoint::new(END_TEXT)),
+        }
     }
 
     pub fn time_by_tasks(&self) -> String {
