@@ -19,7 +19,7 @@ lazy_static! {
     static ref OVERRIDE_REGEX: regex::Regex = regex::Regex::new("\\[(.*)\\]").unwrap();
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct TimePoint {
     text: String,
     time: Time,
@@ -98,7 +98,10 @@ impl TimeSheet {
     pub fn shift_current(&mut self, minutes: i64) {
         let time = &mut self.times[self.selected].time;
         *time += Duration::minutes(minutes);
-        *time -= Duration::minutes(time.minute() as i64 % 5)
+        *time -= Duration::minutes(time.minute() as i64 % 5);
+        let timepoint = self.times[self.selected].clone();
+        self.times.sort_by_key(|tp| tp.time);
+        self.selected = self.times.iter().position(|tp| tp == &timepoint).unwrap();
     }
 
     fn current(&self) -> &TimePoint {
