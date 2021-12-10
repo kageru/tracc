@@ -157,7 +157,7 @@ impl TimeSheet {
 }
 
 fn format_duration(d: &Duration) -> String {
-    format!("{}:{:02}", d.whole_hours(), d.whole_minutes().max(1) % 60)
+    format!("{}:{:02}", d.whole_hours(), d.whole_minutes() % 60)
 }
 
 impl ListView<TimePoint> for TimeSheet {
