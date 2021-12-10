@@ -35,7 +35,8 @@ impl TimePoint {
 }
 
 fn now() -> Time {
-    OffsetDateTime::now_local().time()
+    let raw_time = OffsetDateTime::now_local().time();
+    Time::try_from_hms(raw_time.hour(), raw_time.minute(), 0).unwrap()
 }
 
 impl fmt::Display for TimePoint {
