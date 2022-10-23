@@ -97,7 +97,7 @@ impl TimeSheet {
         &self.times[self.selected]
     }
 
-    fn grouped_times(&self) -> impl Iterator<Item = (String, Duration)> {
+    fn grouped_times(&self) -> collections::BTreeMap<String, Duration> {
         self.times
             .iter()
             .chain(iter::once(&TimePoint::new("end")))
@@ -111,21 +111,31 @@ impl TimeSheet {
                     .or_insert_with(Duration::zero) += duration;
                 map
             })
-            .into_iter()
     }
 
     pub fn time_by_tasks(&self) -> String {
         self.grouped_times()
+            .into_iter()
+            .filter(|(text, _)| text != MAIN_PAUSE_TEXT)
             .map(|(text, duration)| format!("{}: {}", text, format_duration(&duration)))
             .join(" | ")
     }
 
     pub fn sum_as_str(&self) -> String {
-        let total = self
-            .grouped_times()
+        let total = self.grouped_times()
+            .into_iter()
             .filter(|(text, _)| text != MAIN_PAUSE_TEXT)
             .fold(Duration::zero(), |total, (_, d)| total + d);
         format_duration(&total)
+    }
+
+    pub fn pause_time(&self) -> String {
+        let times = self.grouped_times();
+        let duration = times
+            .get(MAIN_PAUSE_TEXT)
+            .map(Duration::clone)
+            .unwrap_or_else(Duration::zero);
+        format!("{}: {}", MAIN_PAUSE_TEXT, format_duration(&duration))
     }
 }
 

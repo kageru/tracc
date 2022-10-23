@@ -124,8 +124,9 @@ impl Tracc {
 
     fn refresh(&mut self) -> Result<(), io::Error> {
         let summary_content = [Text::raw(format!(
-            "Sum for today: {}\n{}",
+            "Sum for today: {}\n{}\n\n{}",
             self.times.sum_as_str(),
+            self.times.pause_time(),
             self.times.time_by_tasks()
         ))];
         let mut summary = Paragraph::new(summary_content.iter())
