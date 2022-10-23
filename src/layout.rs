@@ -20,7 +20,7 @@ pub fn selectable_list<'a, C: AsRef<str>>(
 
 pub fn layout(r: Rect) -> Vec<Rect> {
     Layout::default()
-        .direction(Direction::Vertical)
+        .direction(Direction::Horizontal)
         .constraints(
             [
                 Constraint::Percentage(0),

@@ -139,7 +139,7 @@ impl TimeSheet {
             .into_iter()
             .filter(|(text, _)| text != MAIN_PAUSE_TEXT)
             .map(|(text, duration)| format!("{}: {}", text, format_duration(&duration)))
-            .join(" | ")
+            .join("\n")
     }
 
     pub fn sum_as_str(&self) -> String {
