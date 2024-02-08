@@ -79,13 +79,20 @@ impl Tracc {
                     // Subtract only 1 minute because the number is truncated to the next multiple
                     // of 5 afterwards, so this is effectively a -5.
                     // See https://git.kageru.moe/kageru/tracc/issues/8
-                    Key::Char('-') if self.focus == Focus::Bottom => self.times.shift_current(-1),
-                    Key::Char('+') if self.focus == Focus::Bottom => self.times.shift_current(5),
+                    Key::Char('-') if self.focus == Focus::Bottom => {
+                        self.times.shift_current(-1);
+                        self.persist_state();
+                    }
+                    Key::Char('+') if self.focus == Focus::Bottom => {
+                        self.times.shift_current(5);
+                        self.persist_state();
+                    }
                     // dd
                     Key::Char('d') => {
                         if let Some(Ok(Key::Char('d'))) = inputs.next() {
                             with_focused!(ListView::remove_current);
                         }
+                        self.persist_state();
                     }
                     // yy
                     Key::Char('y') => {
@@ -93,11 +100,17 @@ impl Tracc {
                             with_focused!(ListView::yank);
                         }
                     }
-                    Key::Char('p') => with_focused!(ListView::paste),
+                    Key::Char('p') => {
+                        with_focused!(ListView::paste);
+                        self.persist_state();
+                    },
                     _ => (),
                 },
                 Mode::Insert => match input {
-                    Key::Char('\n') | Key::Esc => self.set_mode(Mode::Normal)?,
+                    Key::Char('\n') | Key::Esc => {
+                        self.set_mode(Mode::Normal)?;
+                        self.persist_state();
+                    },
                     Key::Backspace => with_focused!(ListView::backspace),
                     Key::Char(x) => with_focused!(ListView::append_to_current, x),
                     _ => (),
@@ -105,7 +118,7 @@ impl Tracc {
             };
         }
         self.terminal.clear()?;
-        persist_state(&self.todos, &self.times);
+        self.persist_state();
         Ok(())
     }
 
@@ -116,7 +129,6 @@ impl Tracc {
                 self.todos.normal_mode();
                 self.times.normal_mode();
                 self.terminal.hide_cursor()?;
-                persist_state(&self.todos, &self.times);
             }
         };
         self.input_mode = mode;
@@ -154,21 +166,21 @@ impl Tracc {
         })?;
         Ok(())
     }
-}
 
-fn persist_state(todos: &TodoList, times: &TimeSheet) {
-    fn write(path: &str, content: String) {
-        std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(path)
-            .ok()
-            .or_else(|| panic!("Can’t save state to JSON. Dumping raw data:\n{}", content))
-            .map(|mut f| f.write(content.as_bytes()));
+    pub fn persist_state(&self) {
+        fn write(path: &str, content: String) {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(path)
+                .ok()
+                .or_else(|| panic!("Can’t save state to JSON. Dumping raw data:\n{}", content))
+                .map(|mut f| f.write(content.as_bytes()));
+        }
+        let todos_ser = serde_json::to_string(&self.todos.todos).unwrap();
+        write(JSON_PATH_TODO, todos_ser);
+        let times_ser = serde_json::to_string(&self.times.times).unwrap();
+        write(JSON_PATH_TIME, times_ser);
     }
-    let todos = serde_json::to_string(&todos.todos).unwrap();
-    write(JSON_PATH_TODO, todos);
-    let times = serde_json::to_string(&times.times).unwrap();
-    write(JSON_PATH_TIME, times);
 }
