@@ -3,7 +3,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
 use std::{collections, default, fmt, fs, io};
-use time::{Duration, OffsetDateTime, Time};
+use time::{format_description::FormatItem, Duration, OffsetDateTime, Time};
 
 pub struct TimeSheet {
     pub times: Vec<TimePoint>,
@@ -14,6 +14,8 @@ pub struct TimeSheet {
 const MAIN_PAUSE_TEXT: &str = "pause";
 const PAUSE_TEXTS: [&str; 4] = [MAIN_PAUSE_TEXT, "lunch", "mittag", "break"];
 const END_TEXT: &str = "end";
+static TIME_FORMAT: &[FormatItem<'static>] = time::macros::format_description!("[hour]:[minute]");
+
 
 lazy_static! {
     static ref OVERRIDE_REGEX: regex::Regex = regex::Regex::new("\\[(.*)\\]").unwrap();
@@ -35,13 +37,13 @@ impl TimePoint {
 }
 
 fn now() -> Time {
-    let raw_time = OffsetDateTime::now_local().time();
-    Time::try_from_hms(raw_time.hour(), raw_time.minute(), 0).unwrap()
+    let raw_time = OffsetDateTime::now_local().unwrap().time();
+    Time::from_hms(raw_time.hour(), raw_time.minute(), 0).unwrap()
 }
 
 impl fmt::Display for TimePoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[{}] {}", self.time.format("%H:%M"), self.text)
+        write!(f, "[{}] {}", self.time.format(&TIME_FORMAT).unwrap(), self.text)
     }
 }
 
@@ -120,7 +122,7 @@ impl TimeSheet {
             // (otherwise the summary list will jump around on every input).
             .fold(collections::BTreeMap::new(), |mut map, (text, duration)| {
                 *map.entry(effective_text(text))
-                    .or_insert_with(Duration::zero) += duration;
+                    .or_insert(Duration::ZERO) += duration;
                 map
             })
     }
@@ -146,7 +148,7 @@ impl TimeSheet {
         let total = self.grouped_times()
             .into_iter()
             .filter(|(text, _)| text != MAIN_PAUSE_TEXT)
-            .fold(Duration::zero(), |total, (_, d)| total + d);
+            .fold(Duration::ZERO, |total, (_, d)| total + d);
         format_duration(&total)
     }
 
@@ -155,7 +157,7 @@ impl TimeSheet {
         let duration = times
             .get(MAIN_PAUSE_TEXT)
             .map(Duration::clone)
-            .unwrap_or_else(Duration::zero);
+            .unwrap_or(Duration::ZERO);
         format!("{}: {}", MAIN_PAUSE_TEXT, format_duration(&duration))
     }
 }
