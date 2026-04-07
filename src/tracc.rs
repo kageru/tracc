@@ -1,7 +1,9 @@
 use super::confirm::{self, ConfirmChoice, ConfirmDialog};
 use super::layout;
 use super::timesheet::{self, TimePoint, TimeSheet};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -216,6 +218,8 @@ pub struct Tracc {
     times: TimeSheet,
     terminal: Terminal,
     input_state: InputState,
+    frame_area: Rect,
+    list_area: Rect,
     sheet_locked: bool,
     undo_history: VecDeque<TimeSheet>,
     redo_history: VecDeque<TimeSheet>,
@@ -233,6 +237,8 @@ impl Tracc {
             times,
             terminal,
             input_state: InputState::Normal,
+            frame_area: Rect::default(),
+            list_area: Rect::default(),
             undo_history: VecDeque::new(),
             redo_history: VecDeque::new(),
         }
@@ -241,7 +247,7 @@ impl Tracc {
     pub fn run(&mut self) -> Result<(), io::Error> {
         loop {
             self.refresh()?;
-            let input = read_key()?;
+            let input = event::read()?;
             self.handle_input(input)?;
             if matches!(self.input_state, InputState::Quit) {
                 break;
@@ -251,15 +257,46 @@ impl Tracc {
         Ok(())
     }
 
-    fn handle_input(&mut self, input: KeyEvent) -> Result<(), io::Error> {
-        let state = std::mem::replace(&mut self.input_state, InputState::Normal);
-        self.input_state = match state {
-            InputState::Normal => self.handle_normal_input(input)?,
-            InputState::Editing(edit) => self.handle_edit_input(edit, input)?,
-            InputState::Confirm(confirm) => self.handle_confirm_input(confirm, input)?,
-            InputState::Prefix(prefix) => self.handle_prefix_input(prefix, input)?,
-            InputState::Quit => InputState::Quit,
-        };
+    fn handle_input(&mut self, input: Event) -> Result<(), io::Error> {
+        match input {
+            Event::Key(input) => {
+                let state = std::mem::replace(&mut self.input_state, InputState::Normal);
+                self.input_state = match state {
+                    InputState::Normal => self.handle_normal_input(input)?,
+                    InputState::Editing(edit) => self.handle_edit_input(edit, input)?,
+                    InputState::Confirm(confirm) => self.handle_confirm_input(confirm, input)?,
+                    InputState::Prefix(prefix) => self.handle_prefix_input(prefix, input)?,
+                    InputState::Quit => InputState::Quit,
+                };
+            }
+            Event::Mouse(mouse) => self.handle_mouse_input(mouse)?,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn handle_mouse_input(&mut self, mouse: MouseEvent) -> Result<(), io::Error> {
+        if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+            return Ok(());
+        }
+
+        match &mut self.input_state {
+            InputState::Normal => {
+                if let Some(index) =
+                    list_index_for_click(self.list_area, mouse.row, self.times.times.len())
+                {
+                    self.times.selected = index;
+                }
+            }
+            InputState::Editing(edit) => {
+                let popup_area = edit_area(self.frame_area, self.list_area, edit.anchor());
+                if contains(popup_area, mouse.column, mouse.row) {
+                    edit.cursor = cursor_for_click(&edit.text, mouse.column, popup_area.x + 1);
+                }
+            }
+            _ => {}
+        }
+
         Ok(())
     }
 
@@ -624,14 +661,18 @@ impl Tracc {
             InputState::Confirm(confirm) => Some((confirm.message.clone(), confirm.selected)),
             _ => None,
         };
+        let frame_size = self.terminal.size()?;
+        let frame_area = Rect::new(0, 0, frame_size.width, frame_size.height);
+        let chunks = layout::layout(frame_area);
+        self.frame_area = frame_area;
+        self.list_area = chunks[0];
 
         self.terminal.draw(|frame| {
-            let chunks = layout::layout(frame.area());
             frame.render_stateful_widget(timelist, chunks[0], &mut state);
             frame.render_widget(summary, chunks[1]);
 
             if let Some((text, cursor, title, anchor)) = edit.as_ref() {
-                let popup_area = edit_area(frame.area(), chunks[0], *anchor);
+                let popup_area = edit_area(frame_area, chunks[0], *anchor);
                 let input = Paragraph::new(text.as_str())
                     .block(Block::default().title(*title).borders(Borders::ALL));
                 frame.render_widget(Clear, popup_area);
@@ -812,10 +853,34 @@ fn format_time(minutes: i64) -> String {
     format!("{:02}:{:02}", hours, minutes)
 }
 
-fn read_key() -> Result<KeyEvent, io::Error> {
-    loop {
-        if let Event::Key(key) = event::read()? {
-            return Ok(key);
-        }
+fn list_index_for_click(list_area: Rect, row: u16, len: usize) -> Option<usize> {
+    if len == 0 {
+        return None;
     }
+
+    let inner_top = list_area.y + 1;
+    let inner_bottom = list_area.y + list_area.height.saturating_sub(1);
+    if row < inner_top || row >= inner_bottom {
+        return None;
+    }
+
+    let index = (row - inner_top) as usize;
+    (index < len).then_some(index)
+}
+
+fn contains(area: Rect, x: u16, y: u16) -> bool {
+    x >= area.x && x < area.x + area.width && y >= area.y && y < area.y + area.height
+}
+
+fn cursor_for_click(text: &str, x: u16, text_x: u16) -> usize {
+    let offset = x.saturating_sub(text_x) as usize;
+    let char_count = text.chars().count();
+    if offset >= char_count {
+        return text.len();
+    }
+
+    text.char_indices()
+        .nth(offset)
+        .map(|(index, _)| index)
+        .unwrap_or(text.len())
 }
