@@ -453,5 +453,5 @@ fn format_duration(d: &Duration) -> String {
 fn format_minutes(minutes: i64) -> String {
     let hours = minutes.div_euclid(60);
     let minutes = minutes.rem_euclid(60);
-    format!("{}:{:02}", hours, minutes)
+    format!("{:02}:{:02}", hours, minutes)
 }
