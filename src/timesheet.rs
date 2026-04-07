@@ -162,7 +162,18 @@ fn data_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn data_dir() -> PathBuf {
+    env::var_os("HOME")
+        .map(|home| {
+            PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+        })
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
 fn data_dir() -> PathBuf {
     env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
