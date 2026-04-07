@@ -8,7 +8,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, ListState, Padding, Paragraph, Wrap};
 use std::{
     collections::VecDeque,
     fs,
@@ -643,7 +643,11 @@ impl Tracc {
         );
         let summary = Paragraph::new(summary_content)
             .wrap(Wrap { trim: true })
-            .block(Block::default().borders(Borders::ALL));
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .padding(Padding::new(1, 1, 0, 0)),
+            );
         let times = self.times.printable();
         let timelist = layout::selectable_list(headline, &times);
         let mut state = ListState::default();
