@@ -97,6 +97,19 @@ impl TimeSheet {
         self.times.iter().map(TimePoint::to_string).collect()
     }
 
+    pub fn selected_text(&self) -> String {
+        self.times[self.selected].text.clone()
+    }
+
+    pub fn set_selected_text(&mut self, text: String) {
+        self.times[self.selected].text = text;
+    }
+
+    pub fn insertion_index_for_now(&self) -> usize {
+        let time = now();
+        self.times.partition_point(|tp| tp.time <= time)
+    }
+
     pub fn selection_first(&mut self) {
         self.selected = 0;
     }
@@ -124,6 +137,17 @@ impl TimeSheet {
         }
     }
 
+    pub fn insert_at(&mut self, item: TimePoint, index: usize) {
+        let index = index.min(self.times.len());
+        if index == self.times.len() {
+            self.times.push(item);
+            self.selected = self.times.len() - 1;
+        } else {
+            self.times.insert(index, item);
+            self.selected = index;
+        }
+    }
+
     pub fn remove_current(&mut self) {
         if self.times.is_empty() {
             return;
@@ -144,22 +168,6 @@ impl TimeSheet {
         self.register = self.times[index].clone().into();
     }
 
-    pub fn append_to_current(&mut self, chr: char) {
-        self.times[self.selected].text.push(chr);
-    }
-
-    pub fn backspace(&mut self) {
-        self.times[self.selected].text.pop();
-    }
-
-    pub fn normal_mode(&mut self) {
-        if self.current().text.is_empty() {
-            self.remove_current();
-            self.selected = self.selected.saturating_sub(1);
-        }
-        self.times.sort_by_key(|t| t.time);
-    }
-
     /**
      * Adjust the current time by `minutes` and round the result to a multiple of `minutes`.
      * This is so I can adjust in steps of 5 but still get nice, even numbers in the output.
@@ -171,10 +179,6 @@ impl TimeSheet {
         let timepoint = self.times[self.selected].clone();
         self.times.sort_by_key(|tp| tp.time);
         self.selected = self.times.iter().position(|tp| tp == &timepoint).unwrap();
-    }
-
-    fn current(&self) -> &TimePoint {
-        &self.times[self.selected]
     }
 
     fn grouped_times(&self) -> collections::BTreeMap<String, Duration> {
