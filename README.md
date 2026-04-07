@@ -3,6 +3,8 @@
 tracc is a small terminal app for tracking work time by day and task.
 It keeps a running timesheet, shows totals, and lets you edit entries quickly from the keyboard.
 
+![tracc screenshot](docs/assets/2026-04-07_16-23-29_tracc.png)
+
 ## Features
 
 - Daily time tracking
