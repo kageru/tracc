@@ -643,7 +643,7 @@ impl Tracc {
             self.times.sum_as_str(),
             self.times.pause_time(),
             if self.times.has_time_overflow() {
-                "\ntime overflow detected"
+                "\ntracking exceeds day"
             } else {
                 ""
             },
