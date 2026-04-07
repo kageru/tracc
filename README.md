@@ -88,3 +88,4 @@ but only Linux has been tested.
 - If you enter text like `random text [group]`,
   tracc uses `group` for the summary
   instead of the full text.
+- Time can exceed the calendar day up until +24 hours.
