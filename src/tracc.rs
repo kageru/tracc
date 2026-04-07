@@ -1,13 +1,16 @@
 use super::layout;
-use super::timesheet::{TimePoint, TimeSheet};
+use super::timesheet::{self, TimePoint, TimeSheet};
 use crossterm::event::{self, Event, KeyCode};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 use ratatui::widgets::{Block, Borders, Clear, ListState, Paragraph, Wrap};
-use std::io::{self, Write};
+use std::{
+    fs,
+    io::{self, Write},
+    path::Path,
+};
 
 type Terminal = ratatui::Terminal<CrosstermBackend<io::Stdout>>;
-const JSON_PATH_TIME: &str = "tracc_time.json";
 
 pub enum Mode {
     Insert,
@@ -83,8 +86,9 @@ pub struct Tracc {
 
 impl Tracc {
     pub fn new(terminal: Terminal) -> Self {
+        let path = timesheet::storage_path();
         Self {
-            times: TimeSheet::open_or_create(JSON_PATH_TIME),
+            times: TimeSheet::open_or_create(&path),
             terminal,
             input_mode: Mode::Normal,
             edit: None,
@@ -264,18 +268,24 @@ impl Tracc {
     }
 
     pub fn persist_state(&self) {
-        fn write(path: &str, content: String) {
+        fn write(path: &Path, content: &str) {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).ok();
+            }
             std::fs::OpenOptions::new()
                 .create(true)
                 .write(true)
                 .truncate(true)
                 .open(path)
                 .ok()
-                .or_else(|| panic!("Can’t save state to JSON. Dumping raw data:\n{}", content))
-                .map(|mut f| f.write(content.as_bytes()));
+                .unwrap_or_else(|| {
+                    panic!("Can’t save state to JSON. Dumping raw data:\n{}", content)
+                })
+                .write_all(content.as_bytes())
+                .unwrap();
         }
         let times_ser = serde_json::to_string(&self.times.times).unwrap();
-        write(JSON_PATH_TIME, times_ser);
+        write(&timesheet::storage_path(), &times_ser);
     }
 }
 

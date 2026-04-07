@@ -1,7 +1,10 @@
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
-use std::{collections, default, fmt, fs, io};
+use std::{
+    collections, default, env, fmt, fs, io,
+    path::{Path, PathBuf},
+};
 use time::{format_description::FormatItem, Duration, OffsetDateTime, Time};
 
 pub struct TimeSheet {
@@ -14,7 +17,6 @@ const MAIN_PAUSE_TEXT: &str = "pause";
 const PAUSE_TEXTS: [&str; 4] = [MAIN_PAUSE_TEXT, "lunch", "mittag", "break"];
 const END_TEXT: &str = "end";
 static TIME_FORMAT: &[FormatItem<'static>] = time::macros::format_description!("[hour]:[minute]");
-
 lazy_static! {
     static ref OVERRIDE_REGEX: regex::Regex = regex::Regex::new("\\[(.*)\\]").unwrap();
 }
@@ -39,6 +41,34 @@ fn now() -> Time {
     Time::from_hms(raw_time.hour(), raw_time.minute(), 0).unwrap()
 }
 
+#[cfg(windows)]
+fn data_dir() -> PathBuf {
+    env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("APPDATA").map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+#[cfg(not(windows))]
+fn data_dir() -> PathBuf {
+    env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("share"))
+        })
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+pub fn storage_path() -> PathBuf {
+    let now = OffsetDateTime::now_local().unwrap();
+    data_dir()
+        .join("tracc")
+        .join("timesheets")
+        .join(format!("{}", now.year()))
+        .join(format!("{:02}", now.month() as u8))
+        .join(format!("{:02}.json", now.day()))
+}
+
 impl fmt::Display for TimePoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
@@ -56,7 +86,7 @@ impl default::Default for TimePoint {
     }
 }
 
-fn read_times(path: &str) -> Option<Vec<TimePoint>> {
+fn read_times(path: &Path) -> Option<Vec<TimePoint>> {
     fs::File::open(path)
         .ok()
         .map(io::BufReader::new)
@@ -83,7 +113,7 @@ fn effective_text(s: String) -> String {
 }
 
 impl TimeSheet {
-    pub fn open_or_create(path: &str) -> Self {
+    pub fn open_or_create(path: &Path) -> Self {
         let times = read_times(path).unwrap_or_else(|| vec![TimePoint::new("start")]);
         let selected = times.len().saturating_sub(1);
         Self {
