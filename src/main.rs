@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 use crossterm::{
+    event::{KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -19,7 +20,11 @@ struct TerminalSession;
 impl TerminalSession {
     fn enter() -> Result<Self, io::Error> {
         enable_raw_mode()?;
-        if let Err(err) = execute!(io::stdout(), EnterAlternateScreen) {
+        if let Err(err) = execute!(
+            io::stdout(),
+            EnterAlternateScreen,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        ) {
             let _ = disable_raw_mode();
             return Err(err);
         }
@@ -29,6 +34,7 @@ impl TerminalSession {
 
 impl Drop for TerminalSession {
     fn drop(&mut self) {
+        let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
         let _ = disable_raw_mode();
         let _ = execute!(io::stdout(), LeaveAlternateScreen);
     }

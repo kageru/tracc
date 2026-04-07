@@ -277,6 +277,16 @@ impl Tracc {
                     KeyCode::Right => self.edit_mut().move_right(),
                     KeyCode::Home => self.edit_mut().move_home(),
                     KeyCode::End => self.edit_mut().move_end(),
+                    KeyCode::Char('j')
+                        if input
+                            .state
+                            .contains(crossterm::event::KeyEventState::KEYPAD) =>
+                    {
+                        if self.commit_edit() {
+                            self.set_mode(Mode::Normal)?;
+                            self.persist_state();
+                        }
+                    }
                     KeyCode::Char(x) => self.edit_mut().insert_char(x),
                     _ => (),
                 },
