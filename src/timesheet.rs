@@ -1,4 +1,3 @@
-use super::listview::ListView;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
@@ -98,6 +97,69 @@ impl TimeSheet {
         self.times.iter().map(TimePoint::to_string).collect()
     }
 
+    pub fn selection_first(&mut self) {
+        self.selected = 0;
+    }
+
+    pub fn selection_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    pub fn selection_down(&mut self) {
+        self.selected = (self.selected + 1).min(self.times.len().saturating_sub(1));
+    }
+
+    pub fn selection_last(&mut self) {
+        self.selected = self.times.len().saturating_sub(1);
+    }
+
+    pub fn insert(&mut self, item: TimePoint, position: Option<usize>) {
+        let pos = position.unwrap_or(self.selected);
+        if pos == self.times.len().saturating_sub(1) {
+            self.times.push(item);
+            self.selected = self.times.len() - 1;
+        } else {
+            self.times.insert(pos + 1, item);
+            self.selected = pos + 1;
+        }
+    }
+
+    pub fn remove_current(&mut self) {
+        if self.times.is_empty() {
+            return;
+        }
+        let index = self.selected;
+        self.selected = index.min(self.times.len().saturating_sub(2));
+        self.register = self.times.remove(index).into();
+    }
+
+    pub fn paste(&mut self) {
+        if let Some(item) = self.register.clone() {
+            self.insert(item, None);
+        }
+    }
+
+    pub fn yank(&mut self) {
+        let index = self.selected;
+        self.register = self.times[index].clone().into();
+    }
+
+    pub fn append_to_current(&mut self, chr: char) {
+        self.times[self.selected].text.push(chr);
+    }
+
+    pub fn backspace(&mut self) {
+        self.times[self.selected].text.pop();
+    }
+
+    pub fn normal_mode(&mut self) {
+        if self.current().text.is_empty() {
+            self.remove_current();
+            self.selected = self.selected.saturating_sub(1);
+        }
+        self.times.sort_by_key(|t| t.time);
+    }
+
     /**
      * Adjust the current time by `minutes` and round the result to a multiple of `minutes`.
      * This is so I can adjust in steps of 5 but still get nice, even numbers in the output.
@@ -169,34 +231,4 @@ impl TimeSheet {
 
 fn format_duration(d: &Duration) -> String {
     format!("{}:{:02}", d.whole_hours(), d.whole_minutes() % 60)
-}
-
-impl ListView<TimePoint> for TimeSheet {
-    fn selection_pointer(&mut self) -> &mut usize {
-        &mut self.selected
-    }
-
-    fn list(&mut self) -> &mut Vec<TimePoint> {
-        &mut self.times
-    }
-
-    fn register(&mut self) -> &mut Option<TimePoint> {
-        &mut self.register
-    }
-
-    fn normal_mode(&mut self) {
-        if self.current().text.is_empty() {
-            self.remove_current();
-            self.selected = self.selected.saturating_sub(1);
-        }
-        self.times.sort_by_key(|t| t.time);
-    }
-
-    fn append_to_current(&mut self, chr: char) {
-        self.times[self.selected].text.push(chr);
-    }
-
-    fn backspace(&mut self) {
-        self.times[self.selected].text.pop();
-    }
 }

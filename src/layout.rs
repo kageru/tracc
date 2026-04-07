@@ -21,13 +21,6 @@ pub fn selectable_list<'a, C: AsRef<str>>(
 pub fn layout(r: Rect) -> Vec<Rect> {
     Layout::default()
         .direction(Direction::Horizontal)
-        .constraints(
-            [
-                Constraint::Percentage(0),
-                Constraint::Percentage(60),
-                Constraint::Percentage(40),
-            ]
-            .as_ref(),
-        )
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
         .split(r)
 }

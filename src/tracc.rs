@@ -1,7 +1,5 @@
 use super::layout;
-use super::listview::ListView;
 use super::timesheet::TimeSheet;
-use super::todolist::TodoList;
 use std::default::Default;
 use std::io::{self, Write};
 use termion::event::Key;
@@ -11,48 +9,28 @@ use tui::widgets::*;
 
 type Terminal = tui::Terminal<TermionBackend<termion::raw::RawTerminal<io::Stdout>>>;
 const JSON_PATH_TIME: &str = "tracc_time.json";
-const JSON_PATH_TODO: &str = "tracc_todo.json";
 
 pub enum Mode {
     Insert,
     Normal,
 }
 
-#[derive(PartialEq)]
-enum Focus {
-    Top,
-    Bottom,
-}
-
 pub struct Tracc {
-    todos: TodoList,
     times: TimeSheet,
     terminal: Terminal,
     input_mode: Mode,
-    focus: Focus,
 }
 
 impl Tracc {
     pub fn new(terminal: Terminal) -> Self {
         Self {
-            todos: TodoList::open_or_create(JSON_PATH_TODO),
             times: TimeSheet::open_or_create(JSON_PATH_TIME),
             terminal,
             input_mode: Mode::Normal,
-            focus: Focus::Bottom,
         }
     }
 
     pub fn run(&mut self) -> Result<(), io::Error> {
-        macro_rules! with_focused {
-            ($action: expr $(, $arg: expr)*) => {
-                match self.focus {
-                    Focus::Top => $action(&mut self.todos, $($arg,)*),
-                    Focus::Bottom => $action(&mut self.times, $($arg,)*),
-                }
-            };
-        }
-
         let mut inputs = io::stdin().keys();
         loop {
             self.refresh()?;
@@ -61,47 +39,47 @@ impl Tracc {
             match self.input_mode {
                 Mode::Normal => match input {
                     Key::Char('q') => break,
-                    Key::Char('j') => with_focused!(ListView::selection_down),
-                    Key::Char('k') => with_focused!(ListView::selection_up),
-                    Key::Char('G') => with_focused!(ListView::selection_first),
+                    Key::Char('j') => self.times.selection_down(),
+                    Key::Char('k') => self.times.selection_up(),
+                    Key::Char('G') => self.times.selection_first(),
                     // gg
                     Key::Char('g') => {
                         if let Some(Ok(Key::Char('g'))) = inputs.next() {
-                            with_focused!(ListView::selection_last);
+                            self.times.selection_last();
                         }
                     }
                     Key::Char('o') => {
-                        with_focused!(ListView::insert, Default::default(), None);
+                        self.times.insert(Default::default(), None);
                         self.set_mode(Mode::Insert)?;
                     }
                     Key::Char('a') | Key::Char('A') => self.set_mode(Mode::Insert)?,
-                    Key::Char(' ') if self.focus == Focus::Top => self.todos.toggle_current(),
+                    Key::Char(' ') => (),
                     // Subtract only 1 minute because the number is truncated to the next multiple
                     // of 5 afterwards, so this is effectively a -5.
                     // See https://git.kageru.moe/kageru/tracc/issues/8
-                    Key::Char('-') if self.focus == Focus::Bottom => {
+                    Key::Char('-') => {
                         self.times.shift_current(-1);
                         self.persist_state();
                     }
-                    Key::Char('+') if self.focus == Focus::Bottom => {
+                    Key::Char('+') => {
                         self.times.shift_current(5);
                         self.persist_state();
                     }
                     // dd
                     Key::Char('d') => {
                         if let Some(Ok(Key::Char('d'))) = inputs.next() {
-                            with_focused!(ListView::remove_current);
+                            self.times.remove_current();
                         }
                         self.persist_state();
                     }
                     // yy
                     Key::Char('y') => {
                         if let Some(Ok(Key::Char('y'))) = inputs.next() {
-                            with_focused!(ListView::yank);
+                            self.times.yank();
                         }
                     }
                     Key::Char('p') => {
-                        with_focused!(ListView::paste);
+                        self.times.paste();
                         self.persist_state();
                     }
                     _ => (),
@@ -111,8 +89,8 @@ impl Tracc {
                         self.set_mode(Mode::Normal)?;
                         self.persist_state();
                     }
-                    Key::Backspace => with_focused!(ListView::backspace),
-                    Key::Char(x) => with_focused!(ListView::append_to_current, x),
+                    Key::Backspace => self.times.backspace(),
+                    Key::Char(x) => self.times.append_to_current(x),
                     _ => (),
                 },
             };
@@ -126,7 +104,6 @@ impl Tracc {
         match mode {
             Mode::Insert => self.terminal.show_cursor()?,
             Mode::Normal => {
-                self.todos.normal_mode();
                 self.times.normal_mode();
                 self.terminal.hide_cursor()?;
             }
@@ -145,24 +122,13 @@ impl Tracc {
         let mut summary = Paragraph::new(summary_content.iter())
             .wrap(true)
             .block(Block::default().borders(Borders::ALL));
-        let todos = self.todos.printable();
-        let mut todolist = layout::selectable_list(
-            " t r a c c ",
-            &todos,
-            Some(self.todos.selected).filter(|_| self.focus == Focus::Top),
-        );
         let times = self.times.printable();
-        let mut timelist = layout::selectable_list(
-            " 🕑 ",
-            &times,
-            Some(self.times.selected).filter(|_| self.focus == Focus::Bottom),
-        );
+        let mut timelist = layout::selectable_list(" 🕑 ", &times, Some(self.times.selected));
 
         self.terminal.draw(|mut frame| {
             let chunks = layout::layout(frame.size());
-            todolist.render(&mut frame, chunks[0]);
-            timelist.render(&mut frame, chunks[1]);
-            summary.render(&mut frame, chunks[2]);
+            timelist.render(&mut frame, chunks[0]);
+            summary.render(&mut frame, chunks[1]);
         })?;
         Ok(())
     }
@@ -178,8 +144,6 @@ impl Tracc {
                 .or_else(|| panic!("Can’t save state to JSON. Dumping raw data:\n{}", content))
                 .map(|mut f| f.write(content.as_bytes()));
         }
-        let todos_ser = serde_json::to_string(&self.todos.todos).unwrap();
-        write(JSON_PATH_TODO, todos_ser);
         let times_ser = serde_json::to_string(&self.times.times).unwrap();
         write(JSON_PATH_TIME, times_ser);
     }
