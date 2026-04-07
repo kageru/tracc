@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
+use ratatui::backend::TermionBackend;
+use ratatui::Terminal;
 use std::io;
 use termion::raw::IntoRawMode;
-use tui::backend::TermionBackend;
-use tui::Terminal;
 mod layout;
 mod timesheet;
 mod tracc;

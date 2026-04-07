@@ -1,13 +1,13 @@
 use super::layout;
 use super::timesheet::TimeSheet;
+use ratatui::backend::TermionBackend;
+use ratatui::widgets::{Block, Borders, ListState, Paragraph, Wrap};
 use std::default::Default;
 use std::io::{self, Write};
 use termion::event::Key;
 use termion::input::TermRead;
-use tui::backend::TermionBackend;
-use tui::widgets::*;
 
-type Terminal = tui::Terminal<TermionBackend<termion::raw::RawTerminal<io::Stdout>>>;
+type Terminal = ratatui::Terminal<TermionBackend<termion::raw::RawTerminal<io::Stdout>>>;
 const JSON_PATH_TIME: &str = "tracc_time.json";
 
 pub enum Mode {
@@ -113,22 +113,24 @@ impl Tracc {
     }
 
     fn refresh(&mut self) -> Result<(), io::Error> {
-        let summary_content = [Text::raw(format!(
+        let summary_content = format!(
             "Sum for today: {}\n{}\n\n{}",
             self.times.sum_as_str(),
             self.times.pause_time(),
             self.times.time_by_tasks()
-        ))];
-        let mut summary = Paragraph::new(summary_content.iter())
-            .wrap(true)
+        );
+        let summary = Paragraph::new(summary_content)
+            .wrap(Wrap { trim: true })
             .block(Block::default().borders(Borders::ALL));
         let times = self.times.printable();
-        let mut timelist = layout::selectable_list(" 🕑 ", &times, Some(self.times.selected));
+        let timelist = layout::selectable_list(" 🕑 ", &times);
+        let mut state = ListState::default();
+        state.select(Some(self.times.selected));
 
-        self.terminal.draw(|mut frame| {
-            let chunks = layout::layout(frame.size());
-            timelist.render(&mut frame, chunks[0]);
-            summary.render(&mut frame, chunks[1]);
+        self.terminal.draw(|frame| {
+            let chunks = layout::layout(frame.area());
+            frame.render_stateful_widget(timelist, chunks[0], &mut state);
+            frame.render_widget(summary, chunks[1]);
         })?;
         Ok(())
     }
