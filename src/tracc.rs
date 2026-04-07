@@ -105,12 +105,37 @@ impl EditState {
         self.cursor = prev;
     }
 
+    fn delete_prev_word(&mut self) {
+        let start = prev_word_boundary(&self.text, self.cursor);
+        if start == self.cursor {
+            return;
+        }
+        self.text.drain(start..self.cursor);
+        self.cursor = start;
+    }
+
+    fn delete_next_word(&mut self) {
+        let end = next_word_boundary(&self.text, self.cursor);
+        if end == self.cursor {
+            return;
+        }
+        self.text.drain(self.cursor..end);
+    }
+
     fn move_left(&mut self) {
         self.cursor = prev_char_boundary(&self.text, self.cursor);
     }
 
     fn move_right(&mut self) {
         self.cursor = next_char_boundary(&self.text, self.cursor);
+    }
+
+    fn move_prev_word(&mut self) {
+        self.cursor = prev_word_boundary(&self.text, self.cursor);
+    }
+
+    fn move_next_word(&mut self) {
+        self.cursor = next_word_boundary(&self.text, self.cursor);
     }
 
     fn move_home(&mut self) {
@@ -272,7 +297,19 @@ impl Tracc {
                         self.edit = None;
                         self.set_mode(Mode::Normal)?;
                     }
+                    KeyCode::Backspace if input.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.edit_mut().delete_prev_word()
+                    }
+                    KeyCode::Delete if input.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.edit_mut().delete_next_word()
+                    }
                     KeyCode::Backspace => self.edit_mut().backspace(),
+                    KeyCode::Left if input.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.edit_mut().move_prev_word()
+                    }
+                    KeyCode::Right if input.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.edit_mut().move_next_word()
+                    }
                     KeyCode::Left => self.edit_mut().move_left(),
                     KeyCode::Right => self.edit_mut().move_right(),
                     KeyCode::Home => self.edit_mut().move_home(),
@@ -699,6 +736,50 @@ fn next_char_boundary(text: &str, idx: usize) -> usize {
         .next()
         .map(|chr| idx + chr.len_utf8())
         .unwrap_or(idx)
+}
+
+fn prev_word_boundary(text: &str, idx: usize) -> usize {
+    let mut start = idx;
+
+    while start > 0 {
+        let prev = prev_char_boundary(text, start);
+        if !text[prev..start].chars().all(char::is_whitespace) {
+            break;
+        }
+        start = prev;
+    }
+
+    while start > 0 {
+        let prev = prev_char_boundary(text, start);
+        if text[prev..start].chars().all(char::is_whitespace) {
+            break;
+        }
+        start = prev;
+    }
+
+    start
+}
+
+fn next_word_boundary(text: &str, idx: usize) -> usize {
+    let mut end = idx;
+
+    while end < text.len() {
+        let next = next_char_boundary(text, end);
+        if !text[end..next].chars().all(char::is_whitespace) {
+            break;
+        }
+        end = next;
+    }
+
+    while end < text.len() {
+        let next = next_char_boundary(text, end);
+        if text[end..next].chars().all(char::is_whitespace) {
+            break;
+        }
+        end = next;
+    }
+
+    end
 }
 
 fn format_time(minutes: i64) -> String {
