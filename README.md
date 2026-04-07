@@ -44,6 +44,7 @@ but only Linux has been tested.
 - `G` jump to the first entry
 - `g g` jump to the last entry
 - `g t` jump to today
+- `g d` load a date by ISO input (`YYYY-MM-DD`)
 - `J` go to the next day
 - `K` go to the previous day
 - `o` create a new entry at the current time

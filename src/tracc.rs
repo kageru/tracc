@@ -11,10 +11,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, ListState, Padding, Paragraph, Wrap};
 use std::{
     collections::VecDeque,
+    convert::TryFrom,
     fs,
     io::{self, Write},
 };
-use time::Date;
+use time::{Date, Month};
 
 type Terminal = ratatui::Terminal<CrosstermBackend<io::Stdout>>;
 
@@ -23,6 +24,7 @@ enum EditKind {
     Text(usize),
     Time(usize),
     NewAt { index: usize, time: i64 },
+    LoadDay(usize),
 }
 
 #[derive(Copy, Clone)]
@@ -124,6 +126,16 @@ impl EditState {
         }
     }
 
+    fn date(index: usize, date: Date) -> Self {
+        let text = format_date(date);
+        let cursor = text.len();
+        Self {
+            kind: EditKind::LoadDay(index),
+            text,
+            cursor,
+        }
+    }
+
     fn handle_key(&mut self, input: KeyEvent) -> EditOutcome {
         match input.code {
             KeyCode::Esc => return EditOutcome::Cancel,
@@ -164,6 +176,7 @@ impl EditState {
             EditKind::Text(_) => " edit item ",
             EditKind::Time(_) => " edit time ",
             EditKind::NewAt { .. } => " new item ",
+            EditKind::LoadDay(_) => " load date ",
         }
     }
 
@@ -172,6 +185,14 @@ impl EditState {
             EditKind::Text(index) => index,
             EditKind::Time(index) => index,
             EditKind::NewAt { index, .. } => index.saturating_sub(1),
+            EditKind::LoadDay(index) => index,
+        }
+    }
+
+    fn popup_area(&self, frame_area: Rect, list_area: Rect) -> Rect {
+        match self.kind {
+            EditKind::LoadDay(_) => centered_area(frame_area, 13, 3),
+            _ => edit_area(frame_area, list_area, self.anchor()),
         }
     }
 
@@ -314,7 +335,7 @@ impl Tracc {
                 }
             }
             InputState::Editing(edit) => {
-                let popup_area = edit_area(self.frame_area, self.list_area, edit.anchor());
+                let popup_area = edit.popup_area(self.frame_area, self.list_area);
                 if contains(popup_area, mouse.column, mouse.row) {
                     edit.cursor = cursor_for_click(&edit.text, mouse.column, popup_area.x + 1);
                 }
@@ -464,6 +485,7 @@ impl Tracc {
             PrefixState::G => {
                 match input.code {
                     KeyCode::Char('g') => self.times.selection_last(),
+                    KeyCode::Char('d') => return self.begin_day_load(),
                     KeyCode::Char('t') => self.goto_today()?,
                     _ => {}
                 }
@@ -510,11 +532,12 @@ impl Tracc {
                 Ok(InputState::Normal)
             }
             EditOutcome::Commit => match self.commit_edit(edit) {
-                Some(edit) => Ok(InputState::Editing(edit)),
-                None => {
+                Ok(Some(edit)) => Ok(InputState::Editing(edit)),
+                Ok(None) => {
                     self.terminal.hide_cursor()?;
                     Ok(InputState::Normal)
                 }
+                Err(err) => Err(err),
             },
         }
     }
@@ -610,6 +633,11 @@ impl Tracc {
         Ok(InputState::Editing(edit))
     }
 
+    fn begin_day_load(&mut self) -> Result<InputState, io::Error> {
+        let selected = self.times.selected;
+        self.begin_edit(EditState::date(selected, self.times.date))
+    }
+
     fn begin_new_item(&mut self) -> Result<InputState, io::Error> {
         let index = self.times.insertion_index_for_now();
         let time = self.times.current_minutes_since_start();
@@ -630,7 +658,7 @@ impl Tracc {
         }
     }
 
-    fn commit_edit(&mut self, edit: EditState) -> Option<EditState> {
+    fn commit_edit(&mut self, edit: EditState) -> Result<Option<EditState>, io::Error> {
         let EditState { kind, text, cursor } = edit;
 
         match kind {
@@ -643,33 +671,44 @@ impl Tracc {
                     self.times.set_selected_text(text);
                 }
                 self.persist_state();
-                None
+                Ok(None)
             }
             EditKind::Time(index) => match timesheet::parse_minutes(&text) {
                 Ok(time) => {
                     self.record_change_snapshot();
                     self.times.set_selected_time(time);
                     self.persist_state();
-                    None
+                    Ok(None)
                 }
-                Err(_) => Some(EditState {
+                Err(_) => Ok(Some(EditState {
                     kind: EditKind::Time(index),
                     text,
                     cursor,
-                }),
+                })),
             },
             EditKind::NewAt { index, time } => {
                 if text.is_empty() {
                     self.persist_state();
-                    None
+                    Ok(None)
                 } else {
                     self.record_change_snapshot();
                     let item = TimePoint::new(&text, time);
                     self.times.insert_at(item, index);
                     self.persist_state();
-                    None
+                    Ok(None)
                 }
             }
+            EditKind::LoadDay(index) => match parse_date(&text) {
+                Ok(date) => {
+                    self.load_day(date)?;
+                    Ok(None)
+                }
+                Err(_) => Ok(Some(EditState {
+                    kind: EditKind::LoadDay(index),
+                    text,
+                    cursor,
+                })),
+            },
         }
     }
 
@@ -698,12 +737,17 @@ impl Tracc {
         let timelist = layout::selectable_list(headline, &times);
         let mut state = ListState::default();
         state.select(self.times.selected_index());
+        let frame_size = self.terminal.size()?;
+        let frame_area = Rect::new(0, 0, frame_size.width, frame_size.height);
+        let chunks = layout::layout(frame_area);
+        self.frame_area = frame_area;
+        self.list_area = chunks[0];
         let edit = match &self.input_state {
             InputState::Editing(edit) => Some((
                 edit.text.clone(),
                 edit.cursor,
                 edit.popup_title(),
-                edit.anchor(),
+                edit.popup_area(frame_area, chunks[0]),
             )),
             _ => None,
         };
@@ -711,22 +755,16 @@ impl Tracc {
             InputState::Confirm(confirm) => Some((confirm.message.clone(), confirm.selected)),
             _ => None,
         };
-        let frame_size = self.terminal.size()?;
-        let frame_area = Rect::new(0, 0, frame_size.width, frame_size.height);
-        let chunks = layout::layout(frame_area);
-        self.frame_area = frame_area;
-        self.list_area = chunks[0];
 
         self.terminal.draw(|frame| {
             frame.render_stateful_widget(timelist, chunks[0], &mut state);
             frame.render_widget(summary, chunks[1]);
 
-            if let Some((text, cursor, title, anchor)) = edit.as_ref() {
-                let popup_area = edit_area(frame_area, chunks[0], *anchor);
+            if let Some((text, cursor, title, popup_area)) = edit.as_ref() {
                 let input = Paragraph::new(text.as_str())
                     .block(Block::default().title(*title).borders(Borders::ALL));
-                frame.render_widget(Clear, popup_area);
-                frame.render_widget(input, popup_area);
+                frame.render_widget(Clear, *popup_area);
+                frame.render_widget(input, *popup_area);
 
                 let cursor_x = (popup_area.x + 1 + *cursor as u16)
                     .min(popup_area.x + popup_area.width.saturating_sub(2));
@@ -826,6 +864,38 @@ impl Tracc {
     }
 }
 
+fn format_date(date: Date) -> String {
+    let (year, month, day) = date.to_calendar_date();
+    format!("{:04}-{:02}-{:02}", year, u8::from(month), day)
+}
+
+fn parse_date(value: &str) -> Result<Date, String> {
+    let value = value.trim();
+    let Some((year, rest)) = value.split_once('-') else {
+        return Err(format!("invalid date value: {value}"));
+    };
+    let Some((month, day)) = rest.split_once('-') else {
+        return Err(format!("invalid date value: {value}"));
+    };
+
+    let year = year
+        .parse::<i32>()
+        .map_err(|_| format!("invalid year in date value: {value}"))?;
+    let month = month
+        .parse::<u8>()
+        .map_err(|_| format!("invalid month in date value: {value}"))?;
+    let day = day
+        .parse::<u8>()
+        .map_err(|_| format!("invalid day in date value: {value}"))?;
+
+    Date::from_calendar_date(
+        year,
+        Month::try_from(month).map_err(|_| format!("invalid month in date value: {value}"))?,
+        day,
+    )
+    .map_err(|_| format!("invalid date value: {value}"))
+}
+
 fn edit_area(frame_area: Rect, list_area: Rect, selected: usize) -> Rect {
     let height = 3;
     let width = list_area.width.saturating_sub(4).max(20);
@@ -835,6 +905,15 @@ fn edit_area(frame_area: Rect, list_area: Rect, selected: usize) -> Rect {
     let y = below_row.min(max_y);
 
     Rect::new(x, y, width.min(frame_area.width.saturating_sub(2)), height)
+}
+
+fn centered_area(frame_area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(frame_area.width.saturating_sub(2)).max(1);
+    let height = height.min(frame_area.height.saturating_sub(2)).max(1);
+    let x = frame_area.x + (frame_area.width.saturating_sub(width)) / 2;
+    let y = frame_area.y + (frame_area.height.saturating_sub(height)) / 2;
+
+    Rect::new(x, y, width, height)
 }
 
 fn prev_char_boundary(text: &str, idx: usize) -> usize {
