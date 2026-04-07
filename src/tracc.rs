@@ -56,6 +56,14 @@ impl EditState {
         }
     }
 
+    fn existing_at_start(index: usize, text: String) -> Self {
+        Self {
+            kind: EditKind::Existing(index),
+            text,
+            cursor: 0,
+        }
+    }
+
     fn time(index: usize, time: i64) -> Self {
         let text = format_time(time);
         let cursor = text.len();
@@ -63,6 +71,14 @@ impl EditState {
             kind: EditKind::Time(index),
             text,
             cursor,
+        }
+    }
+
+    fn time_at_start(index: usize, time: i64) -> Self {
+        Self {
+            kind: EditKind::Time(index),
+            text: format_time(time),
+            cursor: 0,
         }
     }
 
@@ -162,11 +178,31 @@ impl Tracc {
                             )?;
                         }
                     }
+                    KeyCode::Char('i') => {
+                        let selected = self.times.selected;
+                        if let Some(text) = self.times.selected_text() {
+                            self.guard_mutation(
+                                PendingAction::BeginEdit(EditState::existing_at_start(
+                                    selected, text,
+                                )),
+                                self.timesheet_change_message(),
+                            )?;
+                        }
+                    }
                     KeyCode::Char('A') => {
                         let selected = self.times.selected;
                         if let Some(time) = self.times.selected_time() {
                             self.guard_mutation(
                                 PendingAction::BeginEdit(EditState::time(selected, time)),
+                                self.timesheet_change_message(),
+                            )?;
+                        }
+                    }
+                    KeyCode::Char('I') => {
+                        let selected = self.times.selected;
+                        if let Some(time) = self.times.selected_time() {
+                            self.guard_mutation(
+                                PendingAction::BeginEdit(EditState::time_at_start(selected, time)),
                                 self.timesheet_change_message(),
                             )?;
                         }
