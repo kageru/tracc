@@ -83,7 +83,7 @@ but only Linux has been tested.
 ## Advanced usage tips
 
 - Pause entries are grouped under `pause`.
-  `pause`, `lunch`, `mittag`, and `break`
+  `pause`, `lunch`, `break`, and `end`
   all count toward the pause summary.
 - If you enter text like `random text [group]`,
   tracc uses `group` for the summary
