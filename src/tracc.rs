@@ -20,7 +20,7 @@ type Terminal = ratatui::Terminal<CrosstermBackend<io::Stdout>>;
 
 #[derive(Copy, Clone)]
 enum EditKind {
-    Existing(usize),
+    Text(usize),
     Time(usize),
     NewAt { index: usize, time: i64 },
 }
@@ -65,26 +65,26 @@ struct ConfirmState {
 }
 
 impl EditState {
-    fn existing(index: usize, text: String) -> Self {
+    fn text(index: usize, text: String) -> Self {
         let cursor = text.len();
         Self {
-            kind: EditKind::Existing(index),
+            kind: EditKind::Text(index),
             text,
             cursor,
         }
     }
 
-    fn existing_at_start(index: usize, text: String) -> Self {
+    fn text_at_start(index: usize, text: String) -> Self {
         Self {
-            kind: EditKind::Existing(index),
+            kind: EditKind::Text(index),
             text,
             cursor: 0,
         }
     }
 
-    fn existing_empty(index: usize) -> Self {
+    fn text_empty(index: usize) -> Self {
         Self {
-            kind: EditKind::Existing(index),
+            kind: EditKind::Text(index),
             text: String::new(),
             cursor: 0,
         }
@@ -161,7 +161,7 @@ impl EditState {
 
     fn popup_title(&self) -> &'static str {
         match self.kind {
-            EditKind::Existing(_) => " edit item ",
+            EditKind::Text(_) => " edit item ",
             EditKind::Time(_) => " edit time ",
             EditKind::NewAt { .. } => " new item ",
         }
@@ -169,7 +169,7 @@ impl EditState {
 
     fn anchor(&self) -> usize {
         match self.kind {
-            EditKind::Existing(index) => index,
+            EditKind::Text(index) => index,
             EditKind::Time(index) => index,
             EditKind::NewAt { index, .. } => index.saturating_sub(1),
         }
@@ -355,7 +355,7 @@ impl Tracc {
                 let selected = self.times.selected;
                 if let Some(text) = self.times.selected_text() {
                     self.guard_mutation(
-                        PendingAction::BeginEdit(EditState::existing(selected, text)),
+                        PendingAction::BeginEdit(EditState::text(selected, text)),
                         self.timesheet_change_message(),
                     )
                 } else {
@@ -366,7 +366,7 @@ impl Tracc {
                 let selected = self.times.selected;
                 if let Some(text) = self.times.selected_text() {
                     self.guard_mutation(
-                        PendingAction::BeginEdit(EditState::existing_at_start(selected, text)),
+                        PendingAction::BeginEdit(EditState::text_at_start(selected, text)),
                         self.timesheet_change_message(),
                     )
                 } else {
@@ -433,7 +433,7 @@ impl Tracc {
                 let selected = self.times.selected;
                 if self.times.selected_text().is_some() {
                     self.guard_mutation(
-                        PendingAction::BeginEdit(EditState::existing_empty(selected)),
+                        PendingAction::BeginEdit(EditState::text_empty(selected)),
                         self.timesheet_change_message(),
                     )
                 } else {
@@ -634,7 +634,7 @@ impl Tracc {
         let EditState { kind, text, cursor } = edit;
 
         match kind {
-            EditKind::Existing(index) => {
+            EditKind::Text(index) => {
                 self.record_change_snapshot();
                 self.times.selected = index;
                 if text.is_empty() {
