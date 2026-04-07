@@ -16,7 +16,6 @@ const PAUSE_TEXTS: [&str; 4] = [MAIN_PAUSE_TEXT, "lunch", "mittag", "break"];
 const END_TEXT: &str = "end";
 static TIME_FORMAT: &[FormatItem<'static>] = time::macros::format_description!("[hour]:[minute]");
 
-
 lazy_static! {
     static ref OVERRIDE_REGEX: regex::Regex = regex::Regex::new("\\[(.*)\\]").unwrap();
 }
@@ -43,7 +42,12 @@ fn now() -> Time {
 
 impl fmt::Display for TimePoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[{}] {}", self.time.format(&TIME_FORMAT).unwrap(), self.text)
+        write!(
+            f,
+            "[{}] {}",
+            self.time.format(&TIME_FORMAT).unwrap(),
+            self.text
+        )
     }
 }
 
@@ -75,7 +79,8 @@ fn effective_text(s: String) -> String {
         MAIN_PAUSE_TEXT
     } else {
         text
-    }.to_string()
+    }
+    .to_string()
 }
 
 impl TimeSheet {
@@ -121,8 +126,7 @@ impl TimeSheet {
             // I use a BTreeMap because I need a stable output order for the iterator
             // (otherwise the summary list will jump around on every input).
             .fold(collections::BTreeMap::new(), |mut map, (text, duration)| {
-                *map.entry(effective_text(text))
-                    .or_insert(Duration::ZERO) += duration;
+                *map.entry(effective_text(text)).or_insert(Duration::ZERO) += duration;
                 map
             })
     }
@@ -145,7 +149,8 @@ impl TimeSheet {
     }
 
     pub fn sum_as_str(&self) -> String {
-        let total = self.grouped_times()
+        let total = self
+            .grouped_times()
             .into_iter()
             .filter(|(text, _)| text != MAIN_PAUSE_TEXT)
             .fold(Duration::ZERO, |total, (_, d)| total + d);

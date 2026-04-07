@@ -103,14 +103,14 @@ impl Tracc {
                     Key::Char('p') => {
                         with_focused!(ListView::paste);
                         self.persist_state();
-                    },
+                    }
                     _ => (),
                 },
                 Mode::Insert => match input {
                     Key::Char('\n') | Key::Esc => {
                         self.set_mode(Mode::Normal)?;
                         self.persist_state();
-                    },
+                    }
                     Key::Backspace => with_focused!(ListView::backspace),
                     Key::Char(x) => with_focused!(ListView::append_to_current, x),
                     _ => (),
