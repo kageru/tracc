@@ -16,16 +16,31 @@ use time::Date;
 
 type Terminal = ratatui::Terminal<CrosstermBackend<io::Stdout>>;
 
-pub enum Mode {
-    Insert,
-    Normal,
-}
-
 #[derive(Copy, Clone)]
 enum EditKind {
     Existing(usize),
     Time(usize),
     NewAt { index: usize, time: i64 },
+}
+
+#[derive(Copy, Clone)]
+enum PrefixState {
+    G,
+    Y,
+}
+
+enum InputState {
+    Normal,
+    Editing(EditState),
+    Confirm(ConfirmState),
+    Prefix(PrefixState),
+    Quit,
+}
+
+enum EditOutcome {
+    Continue,
+    Commit,
+    Cancel,
 }
 
 struct EditState {
@@ -91,6 +106,56 @@ impl EditState {
         }
     }
 
+    fn handle_key(&mut self, input: KeyEvent) -> EditOutcome {
+        match input.code {
+            KeyCode::Esc => return EditOutcome::Cancel,
+            KeyCode::Enter => return EditOutcome::Commit,
+            KeyCode::Char('j')
+                if input
+                    .state
+                    .contains(crossterm::event::KeyEventState::KEYPAD) =>
+            {
+                return EditOutcome::Commit;
+            }
+            KeyCode::Backspace if input.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.delete_prev_word()
+            }
+            KeyCode::Delete if input.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.delete_next_word()
+            }
+            KeyCode::Backspace => self.backspace(),
+            KeyCode::Left if input.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.move_prev_word()
+            }
+            KeyCode::Right if input.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.move_next_word()
+            }
+            KeyCode::Left => self.move_left(),
+            KeyCode::Right => self.move_right(),
+            KeyCode::Home => self.move_home(),
+            KeyCode::End => self.move_end(),
+            KeyCode::Char(x) => self.insert_char(x),
+            _ => (),
+        };
+        EditOutcome::Continue
+    }
+
+    fn popup_title(&self) -> &'static str {
+        match self.kind {
+            EditKind::Existing(_) => " edit item ",
+            EditKind::Time(_) => " edit time ",
+            EditKind::NewAt { .. } => " new item ",
+        }
+    }
+
+    fn anchor(&self) -> usize {
+        match self.kind {
+            EditKind::Existing(index) => index,
+            EditKind::Time(index) => index,
+            EditKind::NewAt { index, .. } => index.saturating_sub(1),
+        }
+    }
+
     fn insert_char(&mut self, chr: char) {
         self.text.insert(self.cursor, chr);
         self.cursor += chr.len_utf8();
@@ -150,9 +215,7 @@ impl EditState {
 pub struct Tracc {
     times: TimeSheet,
     terminal: Terminal,
-    input_mode: Mode,
-    edit: Option<EditState>,
-    confirm: Option<ConfirmState>,
+    input_state: InputState,
     sheet_locked: bool,
     undo_history: VecDeque<TimeSheet>,
     redo_history: VecDeque<TimeSheet>,
@@ -169,9 +232,7 @@ impl Tracc {
             sheet_locked: !times.is_today(),
             times,
             terminal,
-            input_mode: Mode::Normal,
-            edit: None,
-            confirm: None,
+            input_state: InputState::Normal,
             undo_history: VecDeque::new(),
             redo_history: VecDeque::new(),
         }
@@ -181,223 +242,225 @@ impl Tracc {
         loop {
             self.refresh()?;
             let input = read_key()?;
-            if self.handle_confirm_input(input.code)? {
-                continue;
+            self.handle_input(input)?;
+            if matches!(self.input_state, InputState::Quit) {
+                break;
             }
-            match self.input_mode {
-                Mode::Normal => match input.code {
-                    KeyCode::Char('q') => break,
-                    KeyCode::Char('j') => self.times.selection_down(),
-                    KeyCode::Char('k') => self.times.selection_up(),
-                    KeyCode::Char('J') => self.next_day()?,
-                    KeyCode::Char('K') => self.previous_day()?,
-                    KeyCode::Char('G') => self.times.selection_first(),
-                    KeyCode::Char('g') => match read_key()?.code {
-                        KeyCode::Char('g') => self.times.selection_last(),
-                        KeyCode::Char('t') => self.goto_today()?,
-                        _ => {}
-                    },
-                    KeyCode::Char('o') => {
-                        self.begin_new_item()?;
-                    }
-                    KeyCode::Char('a') => {
-                        let selected = self.times.selected;
-                        if let Some(text) = self.times.selected_text() {
-                            self.guard_mutation(
-                                PendingAction::BeginEdit(EditState::existing(selected, text)),
-                                self.timesheet_change_message(),
-                            )?;
-                        }
-                    }
-                    KeyCode::Char('i') => {
-                        let selected = self.times.selected;
-                        if let Some(text) = self.times.selected_text() {
-                            self.guard_mutation(
-                                PendingAction::BeginEdit(EditState::existing_at_start(
-                                    selected, text,
-                                )),
-                                self.timesheet_change_message(),
-                            )?;
-                        }
-                    }
-                    KeyCode::Char('A') => {
-                        let selected = self.times.selected;
-                        if let Some(time) = self.times.selected_time() {
-                            self.guard_mutation(
-                                PendingAction::BeginEdit(EditState::time(selected, time)),
-                                self.timesheet_change_message(),
-                            )?;
-                        }
-                    }
-                    KeyCode::Char('I') => {
-                        let selected = self.times.selected;
-                        if let Some(time) = self.times.selected_time() {
-                            self.guard_mutation(
-                                PendingAction::BeginEdit(EditState::time_at_start(selected, time)),
-                                self.timesheet_change_message(),
-                            )?;
-                        }
-                    }
-                    KeyCode::Char(' ') => (),
-                    // Subtract only 1 minute because the number is truncated to the next multiple
-                    // of 5 afterwards, so this is effectively a -5.
-                    // See https://git.kageru.moe/kageru/tracc/issues/8
-                    KeyCode::Char('-') => {
-                        self.guard_mutation(
-                            PendingAction::ShiftCurrent(-1),
-                            self.timesheet_change_message(),
-                        )?;
-                    }
-                    KeyCode::Char('+') => {
-                        self.guard_mutation(
-                            PendingAction::ShiftCurrent(5),
-                            self.timesheet_change_message(),
-                        )?;
-                    }
-                    KeyCode::Char('d') => {
-                        self.guard_mutation(
-                            PendingAction::RemoveCurrent,
-                            format!(
-                                "Delete the current timesheet entry for {}?",
-                                self.times.date_label()
-                            ),
-                        )?;
-                    }
-                    // yy
-                    KeyCode::Char('y') => {
-                        if read_key()?.code == KeyCode::Char('y') {
-                            self.times.yank();
-                        }
-                    }
-                    KeyCode::Char('p') => {
-                        self.guard_mutation(
-                            PendingAction::Paste,
-                            format!(
-                                "Paste into {} and change its timesheet data?",
-                                self.times.date_label()
-                            ),
-                        )?;
-                    }
-                    KeyCode::Char('u') => {
-                        self.undo_previous_edit()?;
-                    }
-                    KeyCode::Char('r') if input.modifiers.contains(KeyModifiers::CONTROL) => {
-                        self.redo_previous_edit()?;
-                    }
-                    _ => (),
-                },
-                Mode::Insert => match input.code {
-                    KeyCode::Enter => {
-                        if self.commit_edit() {
-                            self.set_mode(Mode::Normal)?;
-                            self.persist_state();
-                        }
-                    }
-                    KeyCode::Esc => {
-                        self.edit = None;
-                        self.set_mode(Mode::Normal)?;
-                    }
-                    KeyCode::Backspace if input.modifiers.contains(KeyModifiers::CONTROL) => {
-                        self.edit_mut().delete_prev_word()
-                    }
-                    KeyCode::Delete if input.modifiers.contains(KeyModifiers::CONTROL) => {
-                        self.edit_mut().delete_next_word()
-                    }
-                    KeyCode::Backspace => self.edit_mut().backspace(),
-                    KeyCode::Left if input.modifiers.contains(KeyModifiers::CONTROL) => {
-                        self.edit_mut().move_prev_word()
-                    }
-                    KeyCode::Right if input.modifiers.contains(KeyModifiers::CONTROL) => {
-                        self.edit_mut().move_next_word()
-                    }
-                    KeyCode::Left => self.edit_mut().move_left(),
-                    KeyCode::Right => self.edit_mut().move_right(),
-                    KeyCode::Home => self.edit_mut().move_home(),
-                    KeyCode::End => self.edit_mut().move_end(),
-                    KeyCode::Char('j')
-                        if input
-                            .state
-                            .contains(crossterm::event::KeyEventState::KEYPAD) =>
-                    {
-                        if self.commit_edit() {
-                            self.set_mode(Mode::Normal)?;
-                            self.persist_state();
-                        }
-                    }
-                    KeyCode::Char(x) => self.edit_mut().insert_char(x),
-                    _ => (),
-                },
-            };
         }
         self.terminal.clear()?;
         Ok(())
     }
 
-    fn handle_confirm_input(&mut self, input: KeyCode) -> Result<bool, io::Error> {
-        let Some(_) = self.confirm.as_ref() else {
-            return Ok(false);
+    fn handle_input(&mut self, input: KeyEvent) -> Result<(), io::Error> {
+        let state = std::mem::replace(&mut self.input_state, InputState::Normal);
+        self.input_state = match state {
+            InputState::Normal => self.handle_normal_input(input)?,
+            InputState::Editing(edit) => self.handle_edit_input(edit, input)?,
+            InputState::Confirm(confirm) => self.handle_confirm_input(confirm, input)?,
+            InputState::Prefix(prefix) => self.handle_prefix_input(prefix, input)?,
+            InputState::Quit => InputState::Quit,
         };
-
-        match input {
-            KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
-                if let Some(confirm) = self.confirm.as_mut() {
-                    confirm.selected = confirm.selected.toggle();
-                }
-            }
-            KeyCode::BackTab => {
-                if let Some(confirm) = self.confirm.as_mut() {
-                    confirm.selected = confirm.selected.toggle();
-                }
-            }
-            KeyCode::Char('y') => {
-                self.accept_confirm()?;
-            }
-            KeyCode::Char('n') | KeyCode::Esc => {
-                self.reject_confirm();
-            }
-            KeyCode::Enter | KeyCode::Char(' ') => {
-                if let Some(confirm) = self.confirm.as_ref() {
-                    match confirm.selected {
-                        ConfirmChoice::Yes => self.accept_confirm()?,
-                        ConfirmChoice::No => self.reject_confirm(),
-                    }
-                }
-            }
-            _ => {}
-        }
-        Ok(true)
+        Ok(())
     }
 
-    fn guard_mutation(&mut self, action: PendingAction, message: String) -> Result<(), io::Error> {
+    fn handle_normal_input(&mut self, input: KeyEvent) -> Result<InputState, io::Error> {
+        match input.code {
+            KeyCode::Char('q') => Ok(InputState::Quit),
+            KeyCode::Char('j') => {
+                self.times.selection_down();
+                Ok(InputState::Normal)
+            }
+            KeyCode::Char('k') => {
+                self.times.selection_up();
+                Ok(InputState::Normal)
+            }
+            KeyCode::Char('J') => {
+                self.next_day()?;
+                Ok(InputState::Normal)
+            }
+            KeyCode::Char('K') => {
+                self.previous_day()?;
+                Ok(InputState::Normal)
+            }
+            KeyCode::Char('G') => {
+                self.times.selection_first();
+                Ok(InputState::Normal)
+            }
+            KeyCode::Char('g') => Ok(InputState::Prefix(PrefixState::G)),
+            KeyCode::Char('y') => Ok(InputState::Prefix(PrefixState::Y)),
+            KeyCode::Char('o') => self.begin_new_item(),
+            KeyCode::Char('a') => {
+                let selected = self.times.selected;
+                if let Some(text) = self.times.selected_text() {
+                    self.guard_mutation(
+                        PendingAction::BeginEdit(EditState::existing(selected, text)),
+                        self.timesheet_change_message(),
+                    )
+                } else {
+                    Ok(InputState::Normal)
+                }
+            }
+            KeyCode::Char('i') => {
+                let selected = self.times.selected;
+                if let Some(text) = self.times.selected_text() {
+                    self.guard_mutation(
+                        PendingAction::BeginEdit(EditState::existing_at_start(selected, text)),
+                        self.timesheet_change_message(),
+                    )
+                } else {
+                    Ok(InputState::Normal)
+                }
+            }
+            KeyCode::Char('A') => {
+                let selected = self.times.selected;
+                if let Some(time) = self.times.selected_time() {
+                    self.guard_mutation(
+                        PendingAction::BeginEdit(EditState::time(selected, time)),
+                        self.timesheet_change_message(),
+                    )
+                } else {
+                    Ok(InputState::Normal)
+                }
+            }
+            KeyCode::Char('I') => {
+                let selected = self.times.selected;
+                if let Some(time) = self.times.selected_time() {
+                    self.guard_mutation(
+                        PendingAction::BeginEdit(EditState::time_at_start(selected, time)),
+                        self.timesheet_change_message(),
+                    )
+                } else {
+                    Ok(InputState::Normal)
+                }
+            }
+            KeyCode::Char(' ') => Ok(InputState::Normal),
+            // Subtract only 1 minute because the number is truncated to the next multiple
+            // of 5 afterwards, so this is effectively a -5.
+            // See https://git.kageru.moe/kageru/tracc/issues/8
+            KeyCode::Char('-') => self.guard_mutation(
+                PendingAction::ShiftCurrent(-1),
+                self.timesheet_change_message(),
+            ),
+            KeyCode::Char('+') => self.guard_mutation(
+                PendingAction::ShiftCurrent(5),
+                self.timesheet_change_message(),
+            ),
+            KeyCode::Char('d') => self.guard_mutation(
+                PendingAction::RemoveCurrent,
+                format!(
+                    "Delete the current timesheet entry for {}?",
+                    self.times.date_label()
+                ),
+            ),
+            KeyCode::Char('p') => self.guard_mutation(
+                PendingAction::Paste,
+                format!(
+                    "Paste into {} and change its timesheet data?",
+                    self.times.date_label()
+                ),
+            ),
+            KeyCode::Char('u') => {
+                self.undo_previous_edit()?;
+                Ok(InputState::Normal)
+            }
+            KeyCode::Char('r') if input.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.redo_previous_edit()?;
+                Ok(InputState::Normal)
+            }
+            _ => Ok(InputState::Normal),
+        }
+    }
+
+    fn handle_prefix_input(
+        &mut self,
+        prefix: PrefixState,
+        input: KeyEvent,
+    ) -> Result<InputState, io::Error> {
+        match prefix {
+            PrefixState::G => {
+                match input.code {
+                    KeyCode::Char('g') => self.times.selection_last(),
+                    KeyCode::Char('t') => self.goto_today()?,
+                    _ => {}
+                }
+                Ok(InputState::Normal)
+            }
+            PrefixState::Y => {
+                if matches!(input.code, KeyCode::Char('y')) {
+                    self.times.yank();
+                }
+                Ok(InputState::Normal)
+            }
+        }
+    }
+
+    fn handle_confirm_input(
+        &mut self,
+        mut confirm: ConfirmState,
+        input: KeyEvent,
+    ) -> Result<InputState, io::Error> {
+        match input.code {
+            KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab => {
+                confirm.selected = confirm.selected.toggle();
+                Ok(InputState::Confirm(confirm))
+            }
+            KeyCode::Char('y') => Ok(self.accept_confirm(confirm)?),
+            KeyCode::Char('n') | KeyCode::Esc => Ok(InputState::Normal),
+            KeyCode::Enter | KeyCode::Char(' ') => match confirm.selected {
+                ConfirmChoice::Yes => Ok(self.accept_confirm(confirm)?),
+                ConfirmChoice::No => Ok(InputState::Normal),
+            },
+            _ => Ok(InputState::Confirm(confirm)),
+        }
+    }
+
+    fn handle_edit_input(
+        &mut self,
+        mut edit: EditState,
+        input: KeyEvent,
+    ) -> Result<InputState, io::Error> {
+        match edit.handle_key(input) {
+            EditOutcome::Continue => Ok(InputState::Editing(edit)),
+            EditOutcome::Cancel => {
+                self.terminal.hide_cursor()?;
+                Ok(InputState::Normal)
+            }
+            EditOutcome::Commit => match self.commit_edit(edit) {
+                Some(edit) => Ok(InputState::Editing(edit)),
+                None => {
+                    self.terminal.hide_cursor()?;
+                    Ok(InputState::Normal)
+                }
+            },
+        }
+    }
+
+    fn guard_mutation(
+        &mut self,
+        action: PendingAction,
+        message: String,
+    ) -> Result<InputState, io::Error> {
         if self.times.is_today() || !self.sheet_locked {
-            self.execute_action(action)?;
+            self.execute_action(action)
         } else {
-            self.confirm = Some(ConfirmState {
+            Ok(InputState::Confirm(ConfirmState {
                 message,
                 action,
                 selected: ConfirmChoice::Yes,
-            });
+            }))
         }
-        Ok(())
-    }
-
-    fn accept_confirm(&mut self) -> Result<(), io::Error> {
-        if let Some(confirm) = self.confirm.take() {
-            self.sheet_locked = false;
-            self.execute_action(confirm.action)?;
-        }
-        Ok(())
     }
 
     fn timesheet_change_message(&self) -> String {
         format!("Change timesheet data for {}?", self.times.date_label())
     }
 
-    fn reject_confirm(&mut self) {
-        self.confirm = None;
+    fn accept_confirm(&mut self, confirm: ConfirmState) -> Result<InputState, io::Error> {
+        self.sheet_locked = false;
+        self.execute_action(confirm.action)
     }
 
-    fn execute_action(&mut self, action: PendingAction) -> Result<(), io::Error> {
+    fn execute_action(&mut self, action: PendingAction) -> Result<InputState, io::Error> {
         match action {
             PendingAction::BeginEdit(edit) => self.begin_edit(edit),
             PendingAction::ShiftCurrent(minutes) => {
@@ -406,7 +469,7 @@ impl Tracc {
                     self.times.shift_current(minutes);
                     self.persist_state();
                 }
-                Ok(())
+                Ok(InputState::Normal)
             }
             PendingAction::RemoveCurrent => {
                 if self.times.selected_index().is_some() {
@@ -414,7 +477,7 @@ impl Tracc {
                     self.times.remove_current();
                     self.persist_state();
                 }
-                Ok(())
+                Ok(InputState::Normal)
             }
             PendingAction::Paste => {
                 if self.times.can_paste() {
@@ -422,7 +485,7 @@ impl Tracc {
                     self.times.paste();
                     self.persist_state();
                 }
-                Ok(())
+                Ok(InputState::Normal)
             }
         }
     }
@@ -451,64 +514,40 @@ impl Tracc {
 
     fn load_day(&mut self, date: Date) -> Result<(), io::Error> {
         self.times = TimeSheet::open(date);
-        self.edit = None;
-        self.confirm = None;
+        self.input_state = InputState::Normal;
         self.undo_history.clear();
         self.redo_history.clear();
         self.sheet_locked = !self.times.is_today();
-        self.input_mode = Mode::Normal;
         self.terminal.hide_cursor()
     }
 
-    fn set_mode(&mut self, mode: Mode) -> Result<(), io::Error> {
-        match mode {
-            Mode::Insert => self.terminal.show_cursor()?,
-            Mode::Normal => {
-                self.edit = None;
-                self.terminal.hide_cursor()?;
-            }
-        }
-        self.input_mode = mode;
-        Ok(())
+    fn begin_edit(&mut self, edit: EditState) -> Result<InputState, io::Error> {
+        self.terminal.show_cursor()?;
+        Ok(InputState::Editing(edit))
     }
 
-    fn begin_edit(&mut self, edit: EditState) -> Result<(), io::Error> {
-        self.edit = Some(edit);
-        self.set_mode(Mode::Insert)
-    }
-
-    fn begin_new_item(&mut self) -> Result<(), io::Error> {
+    fn begin_new_item(&mut self) -> Result<InputState, io::Error> {
         let index = self.times.insertion_index_for_now();
         let time = self.times.current_minutes_since_start();
         let edit = EditState::new_at(index, time);
 
         if time > MAX_NEW_ITEM_MINUTES {
-            self.confirm = Some(ConfirmState {
+            Ok(InputState::Confirm(ConfirmState {
                 message: format!(
                     "The current time for this sheet is beyond 48 hours. Continue anyway?"
                 ),
                 action: PendingAction::BeginEdit(edit),
                 selected: ConfirmChoice::No,
-            });
+            }))
         } else {
             self.guard_mutation(
                 PendingAction::BeginEdit(edit),
                 self.timesheet_change_message(),
-            )?;
+            )
         }
-
-        Ok(())
     }
 
-    fn edit_mut(&mut self) -> &mut EditState {
-        self.edit.as_mut().expect("edit mode without edit state")
-    }
-
-    fn commit_edit(&mut self) -> bool {
-        let Some(edit) = self.edit.take() else {
-            return true;
-        };
-
+    fn commit_edit(&mut self, edit: EditState) -> Option<EditState> {
         let EditState { kind, text, cursor } = edit;
 
         match kind {
@@ -520,31 +559,32 @@ impl Tracc {
                 } else {
                     self.times.set_selected_text(text);
                 }
-                true
+                self.persist_state();
+                None
             }
             EditKind::Time(index) => match timesheet::parse_minutes(&text) {
                 Ok(time) => {
                     self.record_change_snapshot();
                     self.times.set_selected_time(time);
-                    true
+                    self.persist_state();
+                    None
                 }
-                Err(_) => {
-                    self.edit = Some(EditState {
-                        kind: EditKind::Time(index),
-                        text,
-                        cursor,
-                    });
-                    false
-                }
+                Err(_) => Some(EditState {
+                    kind: EditKind::Time(index),
+                    text,
+                    cursor,
+                }),
             },
             EditKind::NewAt { index, time } => {
                 if text.is_empty() {
-                    true
+                    self.persist_state();
+                    None
                 } else {
                     self.record_change_snapshot();
                     let item = TimePoint::new(&text, time);
                     self.times.insert_at(item, index);
-                    true
+                    self.persist_state();
+                    None
                 }
             }
         }
@@ -571,23 +611,19 @@ impl Tracc {
         let timelist = layout::selectable_list(headline, &times);
         let mut state = ListState::default();
         state.select(self.times.selected_index());
-        let edit = self.edit.as_ref().map(|edit| {
-            let title = match edit.kind {
-                EditKind::Existing(_) => " edit item ",
-                EditKind::Time(_) => " edit time ",
-                EditKind::NewAt { .. } => " new item ",
-            };
-            let anchor = match edit.kind {
-                EditKind::Existing(index) => index,
-                EditKind::Time(index) => index,
-                EditKind::NewAt { index, .. } => index.saturating_sub(1),
-            };
-            (edit.text.clone(), edit.cursor, title, anchor)
-        });
-        let confirm = self
-            .confirm
-            .as_ref()
-            .map(|confirm| (confirm.message.clone(), confirm.selected));
+        let edit = match &self.input_state {
+            InputState::Editing(edit) => Some((
+                edit.text.clone(),
+                edit.cursor,
+                edit.popup_title(),
+                edit.anchor(),
+            )),
+            _ => None,
+        };
+        let confirm = match &self.input_state {
+            InputState::Confirm(confirm) => Some((confirm.message.clone(), confirm.selected)),
+            _ => None,
+        };
 
         self.terminal.draw(|frame| {
             let chunks = layout::layout(frame.area());
@@ -677,10 +713,8 @@ impl Tracc {
         self.redo_history.push_back(current);
 
         self.times = previous;
-        self.edit = None;
-        self.confirm = None;
+        self.input_state = InputState::Normal;
         self.sheet_locked = !self.times.is_today();
-        self.input_mode = Mode::Normal;
         self.persist_state();
         self.terminal.hide_cursor()
     }
@@ -694,20 +728,10 @@ impl Tracc {
         self.undo_history.push_back(current);
 
         self.times = next;
-        self.edit = None;
-        self.confirm = None;
+        self.input_state = InputState::Normal;
         self.sheet_locked = !self.times.is_today();
-        self.input_mode = Mode::Normal;
         self.persist_state();
         self.terminal.hide_cursor()
-    }
-}
-
-fn read_key() -> Result<KeyEvent, io::Error> {
-    loop {
-        if let Event::Key(key) = event::read()? {
-            return Ok(key);
-        }
     }
 }
 
@@ -786,4 +810,12 @@ fn format_time(minutes: i64) -> String {
     let hours = minutes.div_euclid(60);
     let minutes = minutes.rem_euclid(60);
     format!("{:02}:{:02}", hours, minutes)
+}
+
+fn read_key() -> Result<KeyEvent, io::Error> {
+    loop {
+        if let Event::Key(key) = event::read()? {
+            return Ok(key);
+        }
+    }
 }
