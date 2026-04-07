@@ -1,11 +1,14 @@
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeTuple;
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::from_reader;
 use std::{
-    collections, default, env, fmt, fs, io,
+    collections,
+    convert::TryFrom,
+    default, env, fmt, fs, io,
     path::{Path, PathBuf},
 };
-use time::{format_description::FormatItem, Date, Duration, OffsetDateTime, Time};
+use time::{Date, Duration, OffsetDateTime};
 
 pub struct TimeSheet {
     pub date: Date,
@@ -17,7 +20,6 @@ pub struct TimeSheet {
 const MAIN_PAUSE_TEXT: &str = "pause";
 const PAUSE_TEXTS: [&str; 4] = [MAIN_PAUSE_TEXT, "lunch", "mittag", "break"];
 const END_TEXT: &str = "end";
-static TIME_FORMAT: &[FormatItem<'static>] = time::macros::format_description!("[hour]:[minute]");
 lazy_static! {
     static ref OVERRIDE_REGEX: regex::Regex = regex::Regex::new("\\[(.*)\\]").unwrap();
 }
@@ -25,21 +27,115 @@ lazy_static! {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct TimePoint {
     text: String,
-    time: Time,
+    #[serde(
+        serialize_with = "serialize_minutes",
+        deserialize_with = "deserialize_minutes"
+    )]
+    time: i64,
 }
 
 impl TimePoint {
-    pub fn new(text: &str) -> Self {
+    pub fn new(text: &str, time: i64) -> Self {
         Self {
             text: String::from(text),
-            time: now(),
+            time,
         }
     }
 }
 
-fn now() -> Time {
-    let raw_time = OffsetDateTime::now_local().unwrap().time();
-    Time::from_hms(raw_time.hour(), raw_time.minute(), 0).unwrap()
+fn serialize_minutes<S>(minutes: &i64, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut tuple = serializer.serialize_tuple(4)?;
+    tuple.serialize_element(&minutes.div_euclid(60))?;
+    tuple.serialize_element(&minutes.rem_euclid(60))?;
+    tuple.serialize_element(&0)?;
+    tuple.serialize_element(&0)?;
+    tuple.end()
+}
+
+fn deserialize_minutes<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct MinutesVisitor;
+
+    impl<'de> de::Visitor<'de> for MinutesVisitor {
+        type Value = i64;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an integer minute offset or a time string")
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+            Ok(value)
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            i64::try_from(value).map_err(|_| E::custom("time value is too large"))
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            parse_minutes(value).map_err(E::custom)
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(&value)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let hour: i64 = seq
+                .next_element()?
+                .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+            let minute: i64 = seq
+                .next_element()?
+                .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+            let _ = seq.next_element::<de::IgnoredAny>()?;
+            let _ = seq.next_element::<de::IgnoredAny>()?;
+            Ok(hour * 60 + minute)
+        }
+    }
+
+    deserializer.deserialize_any(MinutesVisitor)
+}
+
+fn parse_minutes(value: &str) -> Result<i64, String> {
+    let value = value.trim();
+    if let Ok(minutes) = value.parse::<i64>() {
+        return Ok(minutes);
+    }
+
+    let parts: Vec<_> = value.split(':').collect();
+    if parts.len() < 2 {
+        return Err(format!("invalid time value: {value}"));
+    }
+
+    let hours = parts[0]
+        .parse::<i64>()
+        .map_err(|_| format!("invalid hour in time value: {value}"))?;
+    let minutes = parts[1]
+        .parse::<i64>()
+        .map_err(|_| format!("invalid minute in time value: {value}"))?;
+    Ok(hours * 60 + minutes)
+}
+
+fn current_minutes_since(date: Date) -> i64 {
+    let now = OffsetDateTime::now_local().unwrap();
+    let day_diff = (now.date() - date).whole_days();
+    day_diff * 24 * 60 + now.time().hour() as i64 * 60 + now.time().minute() as i64
 }
 
 fn today() -> Date {
@@ -76,18 +172,13 @@ pub fn storage_path_for(date: Date) -> PathBuf {
 
 impl fmt::Display for TimePoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "[{}] {}",
-            self.time.format(&TIME_FORMAT).unwrap(),
-            self.text
-        )
+        write!(f, "[{}] {}", format_minutes(self.time), self.text)
     }
 }
 
 impl default::Default for TimePoint {
     fn default() -> Self {
-        TimePoint::new("")
+        TimePoint::new("", 0)
     }
 }
 
@@ -160,6 +251,10 @@ impl TimeSheet {
             .map(|index| self.times[index].text.clone())
     }
 
+    pub fn current_minutes_since_start(&self) -> i64 {
+        current_minutes_since(self.date)
+    }
+
     pub fn set_selected_text(&mut self, text: String) {
         if self.times.is_empty() {
             return;
@@ -168,7 +263,7 @@ impl TimeSheet {
     }
 
     pub fn insertion_index_for_now(&self) -> usize {
-        let time = now();
+        let time = self.current_minutes_since_start();
         self.times.partition_point(|tp| tp.time <= time)
     }
 
@@ -254,20 +349,28 @@ impl TimeSheet {
             return;
         }
         let time = &mut self.times[self.selected].time;
-        *time += Duration::minutes(minutes);
-        *time -= Duration::minutes(time.minute() as i64 % 5);
+        *time += minutes;
+        *time -= time.rem_euclid(5);
         let timepoint = self.times[self.selected].clone();
         self.times.sort_by_key(|tp| tp.time);
         self.selected = self.times.iter().position(|tp| tp == &timepoint).unwrap();
     }
 
+    pub fn has_time_overflow(&self) -> bool {
+        self.times
+            .last()
+            .map(|tp| tp.time > 24 * 60)
+            .unwrap_or(false)
+    }
+
     fn grouped_times(&self) -> collections::BTreeMap<String, Duration> {
         let last_time = self.times.last();
+        let current_time = self.current_minutes_since_start();
         self.times
             .iter()
-            .chain(TimeSheet::maybe_end_time(last_time).iter())
+            .chain(TimeSheet::maybe_end_time(last_time, current_time).iter())
             .tuple_windows()
-            .map(|(prev, next)| (prev.text.clone(), next.time - prev.time))
+            .map(|(prev, next)| (prev.text.clone(), Duration::minutes(next.time - prev.time)))
             // Fold into a map to group by description.
             // I use a BTreeMap because I need a stable output order for the iterator
             // (otherwise the summary list will jump around on every input).
@@ -277,12 +380,12 @@ impl TimeSheet {
             })
     }
 
-    fn maybe_end_time(last_time: Option<&TimePoint>) -> Option<TimePoint> {
+    fn maybe_end_time(last_time: Option<&TimePoint>, current_time: i64) -> Option<TimePoint> {
         match last_time {
             Some(tp) if PAUSE_TEXTS.contains(&&tp.text[..]) => None,
             Some(tp) if tp.text == END_TEXT => None,
-            Some(tp) if tp.time > now() => None,
-            _ => Some(TimePoint::new(END_TEXT)),
+            Some(tp) if tp.time > current_time => None,
+            _ => Some(TimePoint::new(END_TEXT, current_time)),
         }
     }
 
@@ -315,4 +418,10 @@ impl TimeSheet {
 
 fn format_duration(d: &Duration) -> String {
     format!("{}:{:02}", d.whole_hours(), d.whole_minutes() % 60)
+}
+
+fn format_minutes(minutes: i64) -> String {
+    let hours = minutes.div_euclid(60);
+    let minutes = minutes.rem_euclid(60);
+    format!("{}:{:02}", hours, minutes)
 }

@@ -22,7 +22,7 @@ pub enum Mode {
 
 enum EditKind {
     Existing(usize),
-    NewAt(usize),
+    NewAt { index: usize, time: i64 },
 }
 
 struct EditState {
@@ -54,9 +54,9 @@ impl EditState {
         }
     }
 
-    fn new_at(index: usize) -> Self {
+    fn new_at(index: usize, time: i64) -> Self {
         Self {
-            kind: EditKind::NewAt(index),
+            kind: EditKind::NewAt { index, time },
             text: String::new(),
             cursor: 0,
         }
@@ -102,6 +102,8 @@ pub struct Tracc {
     sheet_locked: bool,
 }
 
+const MAX_NEW_ITEM_MINUTES: i64 = 48 * 60;
+
 impl Tracc {
     pub fn new(terminal: Terminal) -> Self {
         let date = TimeSheet::current_date();
@@ -137,11 +139,7 @@ impl Tracc {
                         _ => {}
                     },
                     KeyCode::Char('o') => {
-                        let index = self.times.insertion_index_for_now();
-                        self.guard_mutation(
-                            PendingAction::BeginEdit(EditState::new_at(index)),
-                            self.timesheet_change_message(),
-                        )?
+                        self.begin_new_item()?;
                     }
                     KeyCode::Char('a') | KeyCode::Char('A') => {
                         let selected = self.times.selected;
@@ -351,6 +349,29 @@ impl Tracc {
         self.set_mode(Mode::Insert)
     }
 
+    fn begin_new_item(&mut self) -> Result<(), io::Error> {
+        let index = self.times.insertion_index_for_now();
+        let time = self.times.current_minutes_since_start();
+        let edit = EditState::new_at(index, time);
+
+        if time > MAX_NEW_ITEM_MINUTES {
+            self.confirm = Some(ConfirmState {
+                message: format!(
+                    "The current time for this sheet is beyond 48 hours. Continue anyway?"
+                ),
+                action: PendingAction::BeginEdit(edit),
+                selected: ConfirmChoice::No,
+            });
+        } else {
+            self.guard_mutation(
+                PendingAction::BeginEdit(edit),
+                self.timesheet_change_message(),
+            )?;
+        }
+
+        Ok(())
+    }
+
     fn edit_mut(&mut self) -> &mut EditState {
         self.edit.as_mut().expect("edit mode without edit state")
     }
@@ -369,11 +390,11 @@ impl Tracc {
                     self.times.set_selected_text(edit.text);
                 }
             }
-            EditKind::NewAt(index) => {
+            EditKind::NewAt { index, time } => {
                 if edit.text.is_empty() {
                     return;
                 }
-                let item = TimePoint::new(&edit.text);
+                let item = TimePoint::new(&edit.text, time);
                 self.times.insert_at(item, index);
             }
         }
@@ -383,9 +404,14 @@ impl Tracc {
         let today = TimeSheet::current_date();
         let headline = self.times_headline(today);
         let summary_content = format!(
-            "Sum: {}\n{}\n\n{}",
+            "Sum: {}\n{}{}\n\n{}",
             self.times.sum_as_str(),
             self.times.pause_time(),
+            if self.times.has_time_overflow() {
+                "\ntime overflow detected"
+            } else {
+                ""
+            },
             self.times.time_by_tasks()
         );
         let summary = Paragraph::new(summary_content)
@@ -398,11 +424,11 @@ impl Tracc {
         let edit = self.edit.as_ref().map(|edit| {
             let title = match edit.kind {
                 EditKind::Existing(_) => " edit item ",
-                EditKind::NewAt(_) => " new item ",
+                EditKind::NewAt { .. } => " new item ",
             };
             let anchor = match edit.kind {
                 EditKind::Existing(index) => index,
-                EditKind::NewAt(index) => index.saturating_sub(1),
+                EditKind::NewAt { index, .. } => index.saturating_sub(1),
             };
             (edit.text.clone(), edit.cursor, title, anchor)
         });
