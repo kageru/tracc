@@ -451,7 +451,7 @@ impl TimeSheet {
         let times = self.grouped_times();
         let duration = times
             .get(MAIN_PAUSE_TEXT)
-            .map(Duration::clone)
+            .copied()
             .unwrap_or(Duration::ZERO);
         format!("{}: {}", MAIN_PAUSE_TEXT, format_duration(&duration))
     }

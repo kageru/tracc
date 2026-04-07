@@ -570,9 +570,8 @@ impl Tracc {
 
         if time > MAX_NEW_ITEM_MINUTES {
             Ok(InputState::Confirm(ConfirmState {
-                message: format!(
-                    "The current time for this sheet is beyond 48 hours. Continue anyway?"
-                ),
+                message: "The current time for this sheet is beyond 48 hours. Continue anyway?"
+                    .to_string(),
                 action: PendingAction::BeginEdit(edit),
                 selected: ConfirmChoice::No,
             }))

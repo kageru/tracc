@@ -19,7 +19,7 @@ impl ConfirmChoice {
 }
 
 pub fn area(frame_area: Rect) -> Rect {
-    let width = frame_area.width.saturating_sub(10).min(50).max(1);
+    let width = frame_area.width.saturating_sub(10).clamp(1, 50);
     let height = 7;
     let x = frame_area.x + (frame_area.width.saturating_sub(width)) / 2;
     let y = frame_area.y + (frame_area.height.saturating_sub(height)) / 2;

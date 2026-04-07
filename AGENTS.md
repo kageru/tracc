@@ -4,6 +4,7 @@
 - `cargo run` starts the TUI.
 - `cargo build` builds the binary.
 - `cargo test` only checks that the crate compiles; there are currently no tests.
+- `cargo clippy` runs lint checks; treat warnings as fixes to address before merging.
 - `cargo fmt` is the only formatting command in the repo.
 
 ## Layout
