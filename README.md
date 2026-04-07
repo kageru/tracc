@@ -49,6 +49,8 @@ but only Linux has been tested.
 - `i` edit the selected entry text from the start
 - `A` edit the selected entry time
 - `I` edit the selected entry time from the start
+- `r` edit the selected entry text with an empty field
+- `R` edit the selected entry time with an empty field
 - `-` move the selected time back by five minutes
 - `+` move the selected time forward by five minutes
 - `d` delete the selected entry

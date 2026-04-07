@@ -82,6 +82,14 @@ impl EditState {
         }
     }
 
+    fn existing_empty(index: usize) -> Self {
+        Self {
+            kind: EditKind::Existing(index),
+            text: String::new(),
+            cursor: 0,
+        }
+    }
+
     fn time(index: usize, time: i64) -> Self {
         let text = format_time(time);
         let cursor = text.len();
@@ -96,6 +104,14 @@ impl EditState {
         Self {
             kind: EditKind::Time(index),
             text: format_time(time),
+            cursor: 0,
+        }
+    }
+
+    fn time_empty(index: usize) -> Self {
+        Self {
+            kind: EditKind::Time(index),
+            text: String::new(),
             cursor: 0,
         }
     }
@@ -412,6 +428,28 @@ impl Tracc {
             KeyCode::Char('r') if input.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.redo_previous_edit()?;
                 Ok(InputState::Normal)
+            }
+            KeyCode::Char('r') => {
+                let selected = self.times.selected;
+                if self.times.selected_text().is_some() {
+                    self.guard_mutation(
+                        PendingAction::BeginEdit(EditState::existing_empty(selected)),
+                        self.timesheet_change_message(),
+                    )
+                } else {
+                    Ok(InputState::Normal)
+                }
+            }
+            KeyCode::Char('R') => {
+                let selected = self.times.selected;
+                if self.times.selected_time().is_some() {
+                    self.guard_mutation(
+                        PendingAction::BeginEdit(EditState::time_empty(selected)),
+                        self.timesheet_change_message(),
+                    )
+                } else {
+                    Ok(InputState::Normal)
+                }
             }
             _ => Ok(InputState::Normal),
         }
