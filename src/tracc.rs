@@ -126,6 +126,7 @@ impl EditState {
                 self.delete_next_word()
             }
             KeyCode::Backspace => self.backspace(),
+            KeyCode::Delete => self.delete_next_char(),
             KeyCode::Left if input.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.move_prev_word()
             }
@@ -170,6 +171,14 @@ impl EditState {
         let prev = prev_char_boundary(&self.text, self.cursor);
         self.text.drain(prev..self.cursor);
         self.cursor = prev;
+    }
+
+    fn delete_next_char(&mut self) {
+        if self.cursor >= self.text.len() {
+            return;
+        }
+        let next = next_char_boundary(&self.text, self.cursor);
+        self.text.drain(self.cursor..next);
     }
 
     fn delete_prev_word(&mut self) {

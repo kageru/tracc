@@ -63,6 +63,7 @@ but only Linux has been tested.
 - `Enter` save
 - `Esc` cancel
 - `Backspace` delete the previous character
+- `Delete` delete the next character
 - `Ctrl+Backspace` delete the previous word
 - `Ctrl+Delete` delete the next word
 - `Left` / `Right` move by character
