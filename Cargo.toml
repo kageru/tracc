@@ -5,8 +5,8 @@ authors = ["kageru <kageru@encode.moe>"]
 edition = "2018"
 
 [dependencies]
-ratatui = { version = "0.30.0", features = ["termion"] }
-termion = "1.5"
+ratatui = { version = "0.30.0", features = ["crossterm"] }
+crossterm = "0.29"
 serde_json = "1"
 itertools = "0.9.0"
 serde = { version = "1", features = ["derive"] }

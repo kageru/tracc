@@ -1,13 +1,12 @@
 use super::layout;
 use super::timesheet::TimeSheet;
-use ratatui::backend::TermionBackend;
+use crossterm::event::{self, Event, KeyCode};
+use ratatui::backend::CrosstermBackend;
 use ratatui::widgets::{Block, Borders, ListState, Paragraph, Wrap};
 use std::default::Default;
 use std::io::{self, Write};
-use termion::event::Key;
-use termion::input::TermRead;
 
-type Terminal = ratatui::Terminal<TermionBackend<termion::raw::RawTerminal<io::Stdout>>>;
+type Terminal = ratatui::Terminal<CrosstermBackend<io::Stdout>>;
 const JSON_PATH_TIME: &str = "tracc_time.json";
 
 pub enum Mode {
@@ -31,66 +30,65 @@ impl Tracc {
     }
 
     pub fn run(&mut self) -> Result<(), io::Error> {
-        let mut inputs = io::stdin().keys();
         loop {
             self.refresh()?;
             // I need to find a better way to handle inputs. This is awful.
-            let input = inputs.next().unwrap()?;
+            let input = read_key()?;
             match self.input_mode {
                 Mode::Normal => match input {
-                    Key::Char('q') => break,
-                    Key::Char('j') => self.times.selection_down(),
-                    Key::Char('k') => self.times.selection_up(),
-                    Key::Char('G') => self.times.selection_first(),
+                    KeyCode::Char('q') => break,
+                    KeyCode::Char('j') => self.times.selection_down(),
+                    KeyCode::Char('k') => self.times.selection_up(),
+                    KeyCode::Char('G') => self.times.selection_first(),
                     // gg
-                    Key::Char('g') => {
-                        if let Some(Ok(Key::Char('g'))) = inputs.next() {
+                    KeyCode::Char('g') => {
+                        if read_key()? == KeyCode::Char('g') {
                             self.times.selection_last();
                         }
                     }
-                    Key::Char('o') => {
+                    KeyCode::Char('o') => {
                         self.times.insert(Default::default(), None);
                         self.set_mode(Mode::Insert)?;
                     }
-                    Key::Char('a') | Key::Char('A') => self.set_mode(Mode::Insert)?,
-                    Key::Char(' ') => (),
+                    KeyCode::Char('a') | KeyCode::Char('A') => self.set_mode(Mode::Insert)?,
+                    KeyCode::Char(' ') => (),
                     // Subtract only 1 minute because the number is truncated to the next multiple
                     // of 5 afterwards, so this is effectively a -5.
                     // See https://git.kageru.moe/kageru/tracc/issues/8
-                    Key::Char('-') => {
+                    KeyCode::Char('-') => {
                         self.times.shift_current(-1);
                         self.persist_state();
                     }
-                    Key::Char('+') => {
+                    KeyCode::Char('+') => {
                         self.times.shift_current(5);
                         self.persist_state();
                     }
                     // dd
-                    Key::Char('d') => {
-                        if let Some(Ok(Key::Char('d'))) = inputs.next() {
+                    KeyCode::Char('d') => {
+                        if read_key()? == KeyCode::Char('d') {
                             self.times.remove_current();
                         }
                         self.persist_state();
                     }
                     // yy
-                    Key::Char('y') => {
-                        if let Some(Ok(Key::Char('y'))) = inputs.next() {
+                    KeyCode::Char('y') => {
+                        if read_key()? == KeyCode::Char('y') {
                             self.times.yank();
                         }
                     }
-                    Key::Char('p') => {
+                    KeyCode::Char('p') => {
                         self.times.paste();
                         self.persist_state();
                     }
                     _ => (),
                 },
                 Mode::Insert => match input {
-                    Key::Char('\n') | Key::Esc => {
+                    KeyCode::Enter | KeyCode::Esc => {
                         self.set_mode(Mode::Normal)?;
                         self.persist_state();
                     }
-                    Key::Backspace => self.times.backspace(),
-                    Key::Char(x) => self.times.append_to_current(x),
+                    KeyCode::Backspace => self.times.backspace(),
+                    KeyCode::Char(x) => self.times.append_to_current(x),
                     _ => (),
                 },
             };
@@ -148,5 +146,13 @@ impl Tracc {
         }
         let times_ser = serde_json::to_string(&self.times.times).unwrap();
         write(JSON_PATH_TIME, times_ser);
+    }
+}
+
+fn read_key() -> Result<KeyCode, io::Error> {
+    loop {
+        if let Event::Key(key) = event::read()? {
+            return Ok(key.code);
+        }
     }
 }
