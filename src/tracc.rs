@@ -1,13 +1,14 @@
 use super::confirm::{self, ConfirmChoice, ConfirmDialog};
 use super::layout;
 use super::timesheet::{self, TimePoint, TimeSheet};
-use crossterm::event::{self, Event, KeyCode};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, ListState, Paragraph, Wrap};
 use std::{
+    collections::VecDeque,
     fs,
     io::{self, Write},
 };
@@ -128,9 +129,12 @@ pub struct Tracc {
     edit: Option<EditState>,
     confirm: Option<ConfirmState>,
     sheet_locked: bool,
+    undo_history: VecDeque<TimeSheet>,
+    redo_history: VecDeque<TimeSheet>,
 }
 
 const MAX_NEW_ITEM_MINUTES: i64 = 48 * 60;
+const MAX_UNDO_SNAPSHOTS: usize = 20;
 
 impl Tracc {
     pub fn new(terminal: Terminal) -> Self {
@@ -143,6 +147,8 @@ impl Tracc {
             input_mode: Mode::Normal,
             edit: None,
             confirm: None,
+            undo_history: VecDeque::new(),
+            redo_history: VecDeque::new(),
         }
     }
 
@@ -150,18 +156,18 @@ impl Tracc {
         loop {
             self.refresh()?;
             let input = read_key()?;
-            if self.handle_confirm_input(input)? {
+            if self.handle_confirm_input(input.code)? {
                 continue;
             }
             match self.input_mode {
-                Mode::Normal => match input {
+                Mode::Normal => match input.code {
                     KeyCode::Char('q') => break,
                     KeyCode::Char('j') => self.times.selection_down(),
                     KeyCode::Char('k') => self.times.selection_up(),
                     KeyCode::Char('J') => self.next_day()?,
                     KeyCode::Char('K') => self.previous_day()?,
                     KeyCode::Char('G') => self.times.selection_first(),
-                    KeyCode::Char('g') => match read_key()? {
+                    KeyCode::Char('g') => match read_key()?.code {
                         KeyCode::Char('g') => self.times.selection_last(),
                         KeyCode::Char('t') => self.goto_today()?,
                         _ => {}
@@ -234,7 +240,7 @@ impl Tracc {
                     }
                     // yy
                     KeyCode::Char('y') => {
-                        if read_key()? == KeyCode::Char('y') {
+                        if read_key()?.code == KeyCode::Char('y') {
                             self.times.yank();
                         }
                     }
@@ -247,9 +253,15 @@ impl Tracc {
                             ),
                         )?;
                     }
+                    KeyCode::Char('u') => {
+                        self.undo_previous_edit()?;
+                    }
+                    KeyCode::Char('r') if input.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.redo_previous_edit()?;
+                    }
                     _ => (),
                 },
-                Mode::Insert => match input {
+                Mode::Insert => match input.code {
                     KeyCode::Enter => {
                         if self.commit_edit() {
                             self.set_mode(Mode::Normal)?;
@@ -342,18 +354,27 @@ impl Tracc {
         match action {
             PendingAction::BeginEdit(edit) => self.begin_edit(edit),
             PendingAction::ShiftCurrent(minutes) => {
-                self.times.shift_current(minutes);
-                self.persist_state();
+                if self.times.selected_index().is_some() {
+                    self.record_change_snapshot();
+                    self.times.shift_current(minutes);
+                    self.persist_state();
+                }
                 Ok(())
             }
             PendingAction::RemoveCurrent => {
-                self.times.remove_current();
-                self.persist_state();
+                if self.times.selected_index().is_some() {
+                    self.record_change_snapshot();
+                    self.times.remove_current();
+                    self.persist_state();
+                }
                 Ok(())
             }
             PendingAction::Paste => {
-                self.times.paste();
-                self.persist_state();
+                if self.times.can_paste() {
+                    self.record_change_snapshot();
+                    self.times.paste();
+                    self.persist_state();
+                }
                 Ok(())
             }
         }
@@ -385,6 +406,8 @@ impl Tracc {
         self.times = TimeSheet::open(date);
         self.edit = None;
         self.confirm = None;
+        self.undo_history.clear();
+        self.redo_history.clear();
         self.sheet_locked = !self.times.is_today();
         self.input_mode = Mode::Normal;
         self.terminal.hide_cursor()
@@ -443,6 +466,7 @@ impl Tracc {
 
         match kind {
             EditKind::Existing(index) => {
+                self.record_change_snapshot();
                 self.times.selected = index;
                 if text.is_empty() {
                     self.times.remove_current();
@@ -451,8 +475,12 @@ impl Tracc {
                 }
                 true
             }
-            EditKind::Time(index) => match self.times.set_selected_time_from_input(&text) {
-                Ok(()) => true,
+            EditKind::Time(index) => match timesheet::parse_minutes(&text) {
+                Ok(time) => {
+                    self.record_change_snapshot();
+                    self.times.set_selected_time(time);
+                    true
+                }
                 Err(_) => {
                     self.edit = Some(EditState {
                         kind: EditKind::Time(index),
@@ -466,6 +494,7 @@ impl Tracc {
                 if text.is_empty() {
                     true
                 } else {
+                    self.record_change_snapshot();
                     let item = TimePoint::new(&text, time);
                     self.times.insert_at(item, index);
                     true
@@ -579,12 +608,58 @@ impl Tracc {
         let times_ser = serde_json::to_string(&self.times.times).unwrap();
         write(&timesheet::storage_path_for(self.times.date), &times_ser);
     }
+
+    fn record_change_snapshot(&mut self) {
+        self.redo_history.clear();
+        self.push_history();
+    }
+
+    fn push_history(&mut self) {
+        if self.undo_history.len() == MAX_UNDO_SNAPSHOTS {
+            self.undo_history.pop_front();
+        }
+        self.undo_history.push_back(self.times.clone());
+    }
+
+    fn undo_previous_edit(&mut self) -> Result<(), io::Error> {
+        let Some(previous) = self.undo_history.pop_back() else {
+            return Ok(());
+        };
+
+        let current = self.times.clone();
+        self.redo_history.push_back(current);
+
+        self.times = previous;
+        self.edit = None;
+        self.confirm = None;
+        self.sheet_locked = !self.times.is_today();
+        self.input_mode = Mode::Normal;
+        self.persist_state();
+        self.terminal.hide_cursor()
+    }
+
+    fn redo_previous_edit(&mut self) -> Result<(), io::Error> {
+        let Some(next) = self.redo_history.pop_back() else {
+            return Ok(());
+        };
+
+        let current = self.times.clone();
+        self.undo_history.push_back(current);
+
+        self.times = next;
+        self.edit = None;
+        self.confirm = None;
+        self.sheet_locked = !self.times.is_today();
+        self.input_mode = Mode::Normal;
+        self.persist_state();
+        self.terminal.hide_cursor()
+    }
 }
 
-fn read_key() -> Result<KeyCode, io::Error> {
+fn read_key() -> Result<KeyEvent, io::Error> {
     loop {
         if let Event::Key(key) = event::read()? {
-            return Ok(key.code);
+            return Ok(key);
         }
     }
 }

@@ -10,6 +10,7 @@ use std::{
 };
 use time::{Date, Duration, OffsetDateTime};
 
+#[derive(Clone)]
 pub struct TimeSheet {
     pub date: Date,
     pub times: Vec<TimePoint>,
@@ -116,7 +117,7 @@ where
     deserializer.deserialize_any(MinutesVisitor)
 }
 
-fn parse_minutes(value: &str) -> Result<i64, String> {
+pub fn parse_minutes(value: &str) -> Result<i64, String> {
     let value = value.trim();
     if value.len() == 4 && value.chars().all(|chr| chr.is_ascii_digit()) {
         let hours = value[..2]
@@ -277,12 +278,6 @@ impl TimeSheet {
         self.times[self.selected].text = text;
     }
 
-    pub fn set_selected_time_from_input(&mut self, value: &str) -> Result<(), String> {
-        let time = parse_minutes(value)?;
-        self.set_selected_time(time);
-        Ok(())
-    }
-
     pub fn set_selected_time(&mut self, time: i64) {
         if self.times.is_empty() {
             return;
@@ -361,6 +356,10 @@ impl TimeSheet {
         if let Some(item) = self.register.clone() {
             self.insert(item, None);
         }
+    }
+
+    pub fn can_paste(&self) -> bool {
+        self.register.is_some()
     }
 
     pub fn yank(&mut self) {
