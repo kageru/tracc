@@ -5,9 +5,10 @@ use std::{
     collections, default, env, fmt, fs, io,
     path::{Path, PathBuf},
 };
-use time::{format_description::FormatItem, Duration, OffsetDateTime, Time};
+use time::{format_description::FormatItem, Date, Duration, OffsetDateTime, Time};
 
 pub struct TimeSheet {
+    pub date: Date,
     pub times: Vec<TimePoint>,
     pub selected: usize,
     pub register: Option<TimePoint>,
@@ -41,6 +42,10 @@ fn now() -> Time {
     Time::from_hms(raw_time.hour(), raw_time.minute(), 0).unwrap()
 }
 
+fn today() -> Date {
+    OffsetDateTime::now_local().unwrap().date()
+}
+
 #[cfg(windows)]
 fn data_dir() -> PathBuf {
     env::var_os("LOCALAPPDATA")
@@ -59,14 +64,14 @@ fn data_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-pub fn storage_path() -> PathBuf {
-    let now = OffsetDateTime::now_local().unwrap();
+pub fn storage_path_for(date: Date) -> PathBuf {
+    let (year, month, day) = date.to_calendar_date();
     data_dir()
         .join("tracc")
         .join("timesheets")
-        .join(format!("{}", now.year()))
-        .join(format!("{:02}", now.month() as u8))
-        .join(format!("{:02}.json", now.day()))
+        .join(format!("{}", year))
+        .join(format!("{:02}", u8::from(month)))
+        .join(format!("{:02}.json", day))
 }
 
 impl fmt::Display for TimePoint {
@@ -113,13 +118,36 @@ fn effective_text(s: String) -> String {
 }
 
 impl TimeSheet {
-    pub fn open_or_create(path: &Path) -> Self {
-        let times = read_times(path).unwrap_or_else(|| vec![TimePoint::new("start")]);
+    pub fn open(date: Date) -> Self {
+        let path = storage_path_for(date);
+        let times = read_times(&path).unwrap_or_default();
         let selected = times.len().saturating_sub(1);
         Self {
+            date,
             times,
             selected,
             register: None,
+        }
+    }
+
+    pub fn current_date() -> Date {
+        today()
+    }
+
+    pub fn date_label(&self) -> String {
+        let (year, month, day) = self.date.to_calendar_date();
+        format!("{:04}-{:02}-{:02}", year, u8::from(month), day)
+    }
+
+    pub fn is_today(&self) -> bool {
+        self.date == today()
+    }
+
+    pub fn selected_index(&self) -> Option<usize> {
+        if self.times.is_empty() {
+            None
+        } else {
+            Some(self.selected.min(self.times.len().saturating_sub(1)))
         }
     }
 
@@ -127,11 +155,15 @@ impl TimeSheet {
         self.times.iter().map(TimePoint::to_string).collect()
     }
 
-    pub fn selected_text(&self) -> String {
-        self.times[self.selected].text.clone()
+    pub fn selected_text(&self) -> Option<String> {
+        self.selected_index()
+            .map(|index| self.times[index].text.clone())
     }
 
     pub fn set_selected_text(&mut self, text: String) {
+        if self.times.is_empty() {
+            return;
+        }
         self.times[self.selected].text = text;
     }
 
@@ -141,18 +173,30 @@ impl TimeSheet {
     }
 
     pub fn selection_first(&mut self) {
+        if self.times.is_empty() {
+            return;
+        }
         self.selected = 0;
     }
 
     pub fn selection_up(&mut self) {
+        if self.times.is_empty() {
+            return;
+        }
         self.selected = self.selected.saturating_sub(1);
     }
 
     pub fn selection_down(&mut self) {
+        if self.times.is_empty() {
+            return;
+        }
         self.selected = (self.selected + 1).min(self.times.len().saturating_sub(1));
     }
 
     pub fn selection_last(&mut self) {
+        if self.times.is_empty() {
+            return;
+        }
         self.selected = self.times.len().saturating_sub(1);
     }
 
@@ -194,6 +238,9 @@ impl TimeSheet {
     }
 
     pub fn yank(&mut self) {
+        if self.times.is_empty() {
+            return;
+        }
         let index = self.selected;
         self.register = self.times[index].clone().into();
     }
@@ -203,6 +250,9 @@ impl TimeSheet {
      * This is so I can adjust in steps of 5 but still get nice, even numbers in the output.
      */
     pub fn shift_current(&mut self, minutes: i64) {
+        if self.times.is_empty() {
+            return;
+        }
         let time = &mut self.times[self.selected].time;
         *time += Duration::minutes(minutes);
         *time -= Duration::minutes(time.minute() as i64 % 5);

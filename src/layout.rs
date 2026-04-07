@@ -2,7 +2,7 @@ use ratatui::layout::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::Line;
 use ratatui::widgets::*;
-pub fn selectable_list<'a, C: AsRef<str>>(title: &'a str, content: &'a [C]) -> List<'a> {
+pub fn selectable_list<'a, C: AsRef<str>>(title: Line<'a>, content: &'a [C]) -> List<'a> {
     let items = content
         .iter()
         .map(|item| ListItem::new(item.as_ref()))

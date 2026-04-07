@@ -6,6 +6,7 @@ use crossterm::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io;
+mod confirm;
 mod layout;
 mod timesheet;
 mod tracc;

@@ -1,14 +1,17 @@
+use super::confirm::{self, ConfirmChoice, ConfirmDialog};
 use super::layout;
 use super::timesheet::{self, TimePoint, TimeSheet};
 use crossterm::event::{self, Event, KeyCode};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, ListState, Paragraph, Wrap};
 use std::{
     fs,
     io::{self, Write},
-    path::Path,
 };
+use time::Date;
 
 type Terminal = ratatui::Terminal<CrosstermBackend<io::Stdout>>;
 
@@ -26,6 +29,19 @@ struct EditState {
     kind: EditKind,
     text: String,
     cursor: usize,
+}
+
+enum PendingAction {
+    BeginEdit(EditState),
+    ShiftCurrent(i64),
+    RemoveCurrent,
+    Paste,
+}
+
+struct ConfirmState {
+    message: String,
+    action: PendingAction,
+    selected: ConfirmChoice,
 }
 
 impl EditState {
@@ -82,16 +98,21 @@ pub struct Tracc {
     terminal: Terminal,
     input_mode: Mode,
     edit: Option<EditState>,
+    confirm: Option<ConfirmState>,
+    sheet_locked: bool,
 }
 
 impl Tracc {
     pub fn new(terminal: Terminal) -> Self {
-        let path = timesheet::storage_path();
+        let date = TimeSheet::current_date();
+        let times = TimeSheet::open(date);
         Self {
-            times: TimeSheet::open_or_create(&path),
+            sheet_locked: !times.is_today(),
+            times,
             terminal,
             input_mode: Mode::Normal,
             edit: None,
+            confirm: None,
         }
     }
 
@@ -99,44 +120,62 @@ impl Tracc {
         loop {
             self.refresh()?;
             let input = read_key()?;
+            if self.handle_confirm_input(input)? {
+                continue;
+            }
             match self.input_mode {
                 Mode::Normal => match input {
                     KeyCode::Char('q') => break,
                     KeyCode::Char('j') => self.times.selection_down(),
                     KeyCode::Char('k') => self.times.selection_up(),
+                    KeyCode::Char('J') => self.next_day()?,
+                    KeyCode::Char('K') => self.previous_day()?,
                     KeyCode::Char('G') => self.times.selection_first(),
-                    KeyCode::Char('g') => {
-                        if read_key()? == KeyCode::Char('g') {
-                            self.times.selection_last();
-                        }
-                    }
+                    KeyCode::Char('g') => match read_key()? {
+                        KeyCode::Char('g') => self.times.selection_last(),
+                        KeyCode::Char('t') => self.goto_today()?,
+                        _ => {}
+                    },
                     KeyCode::Char('o') => {
                         let index = self.times.insertion_index_for_now();
-                        self.begin_edit(EditState::new_at(index))?
+                        self.guard_mutation(
+                            PendingAction::BeginEdit(EditState::new_at(index)),
+                            self.timesheet_change_message(),
+                        )?
                     }
                     KeyCode::Char('a') | KeyCode::Char('A') => {
                         let selected = self.times.selected;
-                        let text = self.times.selected_text();
-                        self.begin_edit(EditState::existing(selected, text))?;
+                        if let Some(text) = self.times.selected_text() {
+                            self.guard_mutation(
+                                PendingAction::BeginEdit(EditState::existing(selected, text)),
+                                self.timesheet_change_message(),
+                            )?;
+                        }
                     }
                     KeyCode::Char(' ') => (),
                     // Subtract only 1 minute because the number is truncated to the next multiple
                     // of 5 afterwards, so this is effectively a -5.
                     // See https://git.kageru.moe/kageru/tracc/issues/8
                     KeyCode::Char('-') => {
-                        self.times.shift_current(-1);
-                        self.persist_state();
+                        self.guard_mutation(
+                            PendingAction::ShiftCurrent(-1),
+                            self.timesheet_change_message(),
+                        )?;
                     }
                     KeyCode::Char('+') => {
-                        self.times.shift_current(5);
-                        self.persist_state();
+                        self.guard_mutation(
+                            PendingAction::ShiftCurrent(5),
+                            self.timesheet_change_message(),
+                        )?;
                     }
-                    // dd
                     KeyCode::Char('d') => {
-                        if read_key()? == KeyCode::Char('d') {
-                            self.times.remove_current();
-                        }
-                        self.persist_state();
+                        self.guard_mutation(
+                            PendingAction::RemoveCurrent,
+                            format!(
+                                "Delete the current timesheet entry for {}?",
+                                self.times.date_label()
+                            ),
+                        )?;
                     }
                     // yy
                     KeyCode::Char('y') => {
@@ -145,8 +184,13 @@ impl Tracc {
                         }
                     }
                     KeyCode::Char('p') => {
-                        self.times.paste();
-                        self.persist_state();
+                        self.guard_mutation(
+                            PendingAction::Paste,
+                            format!(
+                                "Paste into {} and change its timesheet data?",
+                                self.times.date_label()
+                            ),
+                        )?;
                     }
                     _ => (),
                 },
@@ -171,8 +215,123 @@ impl Tracc {
             };
         }
         self.terminal.clear()?;
-        self.persist_state();
         Ok(())
+    }
+
+    fn handle_confirm_input(&mut self, input: KeyCode) -> Result<bool, io::Error> {
+        let Some(_) = self.confirm.as_ref() else {
+            return Ok(false);
+        };
+
+        match input {
+            KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
+                if let Some(confirm) = self.confirm.as_mut() {
+                    confirm.selected = confirm.selected.toggle();
+                }
+            }
+            KeyCode::BackTab => {
+                if let Some(confirm) = self.confirm.as_mut() {
+                    confirm.selected = confirm.selected.toggle();
+                }
+            }
+            KeyCode::Char('y') => {
+                self.accept_confirm()?;
+            }
+            KeyCode::Char('n') | KeyCode::Esc => {
+                self.reject_confirm();
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                if let Some(confirm) = self.confirm.as_ref() {
+                    match confirm.selected {
+                        ConfirmChoice::Yes => self.accept_confirm()?,
+                        ConfirmChoice::No => self.reject_confirm(),
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(true)
+    }
+
+    fn guard_mutation(&mut self, action: PendingAction, message: String) -> Result<(), io::Error> {
+        if self.times.is_today() || !self.sheet_locked {
+            self.execute_action(action)?;
+        } else {
+            self.confirm = Some(ConfirmState {
+                message,
+                action,
+                selected: ConfirmChoice::Yes,
+            });
+        }
+        Ok(())
+    }
+
+    fn accept_confirm(&mut self) -> Result<(), io::Error> {
+        if let Some(confirm) = self.confirm.take() {
+            self.sheet_locked = false;
+            self.execute_action(confirm.action)?;
+        }
+        Ok(())
+    }
+
+    fn timesheet_change_message(&self) -> String {
+        format!("Change timesheet data for {}?", self.times.date_label())
+    }
+
+    fn reject_confirm(&mut self) {
+        self.confirm = None;
+    }
+
+    fn execute_action(&mut self, action: PendingAction) -> Result<(), io::Error> {
+        match action {
+            PendingAction::BeginEdit(edit) => self.begin_edit(edit),
+            PendingAction::ShiftCurrent(minutes) => {
+                self.times.shift_current(minutes);
+                self.persist_state();
+                Ok(())
+            }
+            PendingAction::RemoveCurrent => {
+                self.times.remove_current();
+                self.persist_state();
+                Ok(())
+            }
+            PendingAction::Paste => {
+                self.times.paste();
+                self.persist_state();
+                Ok(())
+            }
+        }
+    }
+
+    fn previous_day(&mut self) -> Result<(), io::Error> {
+        if let Some(date) = self.times.date.previous_day() {
+            self.load_day(date)?;
+        }
+        Ok(())
+    }
+
+    fn next_day(&mut self) -> Result<(), io::Error> {
+        let today = TimeSheet::current_date();
+        if let Some(date) = self.times.date.next_day() {
+            if date > today {
+                return Ok(());
+            }
+            self.load_day(date)?;
+        }
+        Ok(())
+    }
+
+    fn goto_today(&mut self) -> Result<(), io::Error> {
+        self.load_day(TimeSheet::current_date())
+    }
+
+    fn load_day(&mut self, date: Date) -> Result<(), io::Error> {
+        self.times = TimeSheet::open(date);
+        self.edit = None;
+        self.confirm = None;
+        self.sheet_locked = !self.times.is_today();
+        self.input_mode = Mode::Normal;
+        self.terminal.hide_cursor()
     }
 
     fn set_mode(&mut self, mode: Mode) -> Result<(), io::Error> {
@@ -221,8 +380,10 @@ impl Tracc {
     }
 
     fn refresh(&mut self) -> Result<(), io::Error> {
+        let today = TimeSheet::current_date();
+        let headline = self.times_headline(today);
         let summary_content = format!(
-            "Sum for today: {}\n{}\n\n{}",
+            "Sum: {}\n{}\n\n{}",
             self.times.sum_as_str(),
             self.times.pause_time(),
             self.times.time_by_tasks()
@@ -231,10 +392,9 @@ impl Tracc {
             .wrap(Wrap { trim: true })
             .block(Block::default().borders(Borders::ALL));
         let times = self.times.printable();
-        let timelist = layout::selectable_list(" 🕑 ", &times);
+        let timelist = layout::selectable_list(headline, &times);
         let mut state = ListState::default();
-        let selected = self.times.selected;
-        state.select(Some(selected));
+        state.select(self.times.selected_index());
         let edit = self.edit.as_ref().map(|edit| {
             let title = match edit.kind {
                 EditKind::Existing(_) => " edit item ",
@@ -246,6 +406,10 @@ impl Tracc {
             };
             (edit.text.clone(), edit.cursor, title, anchor)
         });
+        let confirm = self
+            .confirm
+            .as_ref()
+            .map(|confirm| (confirm.message.clone(), confirm.selected));
 
         self.terminal.draw(|frame| {
             let chunks = layout::layout(frame.area());
@@ -263,12 +427,38 @@ impl Tracc {
                     .min(popup_area.x + popup_area.width.saturating_sub(2));
                 frame.set_cursor_position((cursor_x, popup_area.y + 1));
             }
+
+            if let Some((message, selected)) = confirm.as_ref() {
+                let popup_area = confirm::area(frame.area());
+                ConfirmDialog::new(message.as_str(), *selected).render(frame, popup_area);
+            }
         })?;
         Ok(())
     }
 
+    fn times_headline(&self, today: Date) -> Line<'static> {
+        let mut spans = vec![Span::raw("< ")];
+        let weekday = format!("{:?}", self.times.date.weekday());
+        let label = format!("{} {}", self.times.date_label(), weekday);
+        if self.times.date == today || !self.sheet_locked {
+            spans.push(Span::styled(
+                label,
+                Style::default().add_modifier(Modifier::BOLD),
+            ));
+        } else {
+            spans.push(Span::styled(
+                label,
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ));
+        }
+        if self.times.date < today {
+            spans.push(Span::raw(" >"));
+        }
+        Line::from(spans)
+    }
+
     pub fn persist_state(&self) {
-        fn write(path: &Path, content: &str) {
+        fn write(path: &std::path::Path, content: &str) {
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent).ok();
             }
@@ -285,7 +475,7 @@ impl Tracc {
                 .unwrap();
         }
         let times_ser = serde_json::to_string(&self.times.times).unwrap();
-        write(&timesheet::storage_path(), &times_ser);
+        write(&timesheet::storage_path_for(self.times.date), &times_ser);
     }
 }
 
