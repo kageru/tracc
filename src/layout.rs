@@ -9,11 +9,7 @@ pub fn selectable_list<'a, C: AsRef<str>>(title: Line<'a>, content: &'a [C]) -> 
         .collect::<Vec<_>>();
 
     List::new(items)
-        .block(
-            Block::default()
-                .title(title)
-                .borders(Borders::TOP | Borders::RIGHT | Borders::LEFT),
-        )
+        .block(Block::default().title(title).borders(Borders::ALL))
         .highlight_style(Style::default().fg(Color::LightGreen))
         .highlight_symbol(Line::from(">"))
 }
