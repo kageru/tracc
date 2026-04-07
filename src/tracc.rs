@@ -20,8 +20,10 @@ pub enum Mode {
     Normal,
 }
 
+#[derive(Copy, Clone)]
 enum EditKind {
     Existing(usize),
+    Time(usize),
     NewAt { index: usize, time: i64 },
 }
 
@@ -49,6 +51,16 @@ impl EditState {
         let cursor = text.len();
         Self {
             kind: EditKind::Existing(index),
+            text,
+            cursor,
+        }
+    }
+
+    fn time(index: usize, time: i64) -> Self {
+        let text = format_time(time);
+        let cursor = text.len();
+        Self {
+            kind: EditKind::Time(index),
             text,
             cursor,
         }
@@ -141,11 +153,20 @@ impl Tracc {
                     KeyCode::Char('o') => {
                         self.begin_new_item()?;
                     }
-                    KeyCode::Char('a') | KeyCode::Char('A') => {
+                    KeyCode::Char('a') => {
                         let selected = self.times.selected;
                         if let Some(text) = self.times.selected_text() {
                             self.guard_mutation(
                                 PendingAction::BeginEdit(EditState::existing(selected, text)),
+                                self.timesheet_change_message(),
+                            )?;
+                        }
+                    }
+                    KeyCode::Char('A') => {
+                        let selected = self.times.selected;
+                        if let Some(time) = self.times.selected_time() {
+                            self.guard_mutation(
+                                PendingAction::BeginEdit(EditState::time(selected, time)),
                                 self.timesheet_change_message(),
                             )?;
                         }
@@ -194,9 +215,10 @@ impl Tracc {
                 },
                 Mode::Insert => match input {
                     KeyCode::Enter => {
-                        self.commit_edit();
-                        self.set_mode(Mode::Normal)?;
-                        self.persist_state();
+                        if self.commit_edit() {
+                            self.set_mode(Mode::Normal)?;
+                            self.persist_state();
+                        }
                     }
                     KeyCode::Esc => {
                         self.edit = None;
@@ -376,26 +398,42 @@ impl Tracc {
         self.edit.as_mut().expect("edit mode without edit state")
     }
 
-    fn commit_edit(&mut self) {
+    fn commit_edit(&mut self) -> bool {
         let Some(edit) = self.edit.take() else {
-            return;
+            return true;
         };
 
-        match edit.kind {
+        let EditState { kind, text, cursor } = edit;
+
+        match kind {
             EditKind::Existing(index) => {
                 self.times.selected = index;
-                if edit.text.is_empty() {
+                if text.is_empty() {
                     self.times.remove_current();
                 } else {
-                    self.times.set_selected_text(edit.text);
+                    self.times.set_selected_text(text);
                 }
+                true
             }
-            EditKind::NewAt { index, time } => {
-                if edit.text.is_empty() {
-                    return;
+            EditKind::Time(index) => match self.times.set_selected_time_from_input(&text) {
+                Ok(()) => true,
+                Err(_) => {
+                    self.edit = Some(EditState {
+                        kind: EditKind::Time(index),
+                        text,
+                        cursor,
+                    });
+                    false
                 }
-                let item = TimePoint::new(&edit.text, time);
-                self.times.insert_at(item, index);
+            },
+            EditKind::NewAt { index, time } => {
+                if text.is_empty() {
+                    true
+                } else {
+                    let item = TimePoint::new(&text, time);
+                    self.times.insert_at(item, index);
+                    true
+                }
             }
         }
     }
@@ -424,10 +462,12 @@ impl Tracc {
         let edit = self.edit.as_ref().map(|edit| {
             let title = match edit.kind {
                 EditKind::Existing(_) => " edit item ",
+                EditKind::Time(_) => " edit time ",
                 EditKind::NewAt { .. } => " new item ",
             };
             let anchor = match edit.kind {
                 EditKind::Existing(index) => index,
+                EditKind::Time(index) => index,
                 EditKind::NewAt { index, .. } => index.saturating_sub(1),
             };
             (edit.text.clone(), edit.cursor, title, anchor)
@@ -538,4 +578,10 @@ fn next_char_boundary(text: &str, idx: usize) -> usize {
         .next()
         .map(|chr| idx + chr.len_utf8())
         .unwrap_or(idx)
+}
+
+fn format_time(minutes: i64) -> String {
+    let hours = minutes.div_euclid(60);
+    let minutes = minutes.rem_euclid(60);
+    format!("{:02}:{:02}", hours, minutes)
 }

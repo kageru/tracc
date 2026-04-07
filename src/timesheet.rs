@@ -41,6 +41,10 @@ impl TimePoint {
             time,
         }
     }
+
+    pub fn time(&self) -> i64 {
+        self.time
+    }
 }
 
 fn serialize_minutes<S>(minutes: &i64, serializer: S) -> Result<S::Ok, S::Error>
@@ -114,22 +118,29 @@ where
 
 fn parse_minutes(value: &str) -> Result<i64, String> {
     let value = value.trim();
-    if let Ok(minutes) = value.parse::<i64>() {
-        return Ok(minutes);
+    if value.len() == 4 && value.chars().all(|chr| chr.is_ascii_digit()) {
+        let hours = value[..2]
+            .parse::<i64>()
+            .map_err(|_| format!("invalid hour in time value: {value}"))?;
+        let minutes = value[2..]
+            .parse::<i64>()
+            .map_err(|_| format!("invalid minute in time value: {value}"))?;
+        return Ok(hours * 60 + minutes);
     }
 
-    let parts: Vec<_> = value.split(':').collect();
-    if parts.len() < 2 {
-        return Err(format!("invalid time value: {value}"));
+    if let Some((hours, minutes)) = value.split_once(':') {
+        let hours = hours
+            .parse::<i64>()
+            .map_err(|_| format!("invalid hour in time value: {value}"))?;
+        let minutes = minutes
+            .parse::<i64>()
+            .map_err(|_| format!("invalid minute in time value: {value}"))?;
+        return Ok(hours * 60 + minutes);
     }
 
-    let hours = parts[0]
+    value
         .parse::<i64>()
-        .map_err(|_| format!("invalid hour in time value: {value}"))?;
-    let minutes = parts[1]
-        .parse::<i64>()
-        .map_err(|_| format!("invalid minute in time value: {value}"))?;
-    Ok(hours * 60 + minutes)
+        .map_err(|_| format!("invalid time value: {value}"))
 }
 
 fn current_minutes_since(date: Date) -> i64 {
@@ -251,6 +262,10 @@ impl TimeSheet {
             .map(|index| self.times[index].text.clone())
     }
 
+    pub fn selected_time(&self) -> Option<i64> {
+        self.selected_index().map(|index| self.times[index].time())
+    }
+
     pub fn current_minutes_since_start(&self) -> i64 {
         current_minutes_since(self.date)
     }
@@ -260,6 +275,22 @@ impl TimeSheet {
             return;
         }
         self.times[self.selected].text = text;
+    }
+
+    pub fn set_selected_time_from_input(&mut self, value: &str) -> Result<(), String> {
+        let time = parse_minutes(value)?;
+        self.set_selected_time(time);
+        Ok(())
+    }
+
+    pub fn set_selected_time(&mut self, time: i64) {
+        if self.times.is_empty() {
+            return;
+        }
+        self.times[self.selected].time = time;
+        let timepoint = self.times[self.selected].clone();
+        self.times.sort_by_key(|tp| tp.time);
+        self.selected = self.times.iter().position(|tp| tp == &timepoint).unwrap();
     }
 
     pub fn insertion_index_for_now(&self) -> usize {
