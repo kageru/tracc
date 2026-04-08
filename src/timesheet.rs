@@ -301,6 +301,23 @@ impl TimeSheet {
         self.times.iter().map(TimePoint::to_string).collect()
     }
 
+    pub fn printable_with_preview(&self, preview: Option<(usize, TimePoint)>) -> Vec<String> {
+        let mut items = self.printable();
+        if let Some((index, item)) = preview {
+            items.insert(index.min(items.len()), item.to_string());
+        }
+        items
+    }
+
+    pub fn selected_index_with_preview(&self, preview_index: Option<usize>) -> Option<usize> {
+        match (self.selected_index(), preview_index) {
+            (Some(selected), Some(index)) if index <= selected => Some(selected + 1),
+            (Some(selected), _) => Some(selected),
+            (None, Some(index)) => Some(index.min(self.times.len())),
+            (None, None) => None,
+        }
+    }
+
     pub fn selected_text(&self) -> Option<String> {
         self.selected_index()
             .map(|index| self.times[index].text.clone())

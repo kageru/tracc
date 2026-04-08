@@ -1,8 +1,9 @@
+use super::edit::EditKind;
 use super::input::InputState;
 use super::Tracc;
 use crate::confirm::{self, ConfirmDialog};
 use crate::layout;
-use crate::timesheet::TimeSheet;
+use crate::timesheet::{TimePoint, TimeSheet};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -30,10 +31,18 @@ impl Tracc {
                     .borders(Borders::ALL)
                     .padding(Padding::new(1, 1, 0, 0)),
             );
-        let times = self.times.printable();
+        let preview = match &self.input_state {
+            InputState::Editing(edit) => match edit.kind {
+                EditKind::NewAt { index, time } => Some((index, TimePoint::new(&edit.text, time))),
+                _ => None,
+            },
+            _ => None,
+        };
+        let preview_index = preview.as_ref().map(|(index, _)| *index);
+        let times = self.times.printable_with_preview(preview);
         let timelist = layout::selectable_list(headline, &times);
         let mut state = ListState::default();
-        state.select(self.times.selected_index());
+        state.select(self.times.selected_index_with_preview(preview_index));
         let frame_size = self.terminal.size()?;
         let frame_area = Rect::new(0, 0, frame_size.width, frame_size.height);
         let chunks = layout::layout(frame_area);

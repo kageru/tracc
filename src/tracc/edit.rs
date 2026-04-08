@@ -137,7 +137,7 @@ impl EditState {
         match self.kind {
             EditKind::Text(index) => index,
             EditKind::Time(index) => index,
-            EditKind::NewAt { index, .. } => index.saturating_sub(1),
+            EditKind::NewAt { index, .. } => index,
             EditKind::LoadDay(index) => index,
         }
     }
