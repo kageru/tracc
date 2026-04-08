@@ -381,17 +381,6 @@ impl TimeSheet {
         self.selected = self.times.len().saturating_sub(1);
     }
 
-    pub fn insert(&mut self, item: TimePoint, position: Option<usize>) {
-        let pos = position.unwrap_or(self.selected);
-        if pos == self.times.len().saturating_sub(1) {
-            self.times.push(item);
-            self.selected = self.times.len() - 1;
-        } else {
-            self.times.insert(pos + 1, item);
-            self.selected = pos + 1;
-        }
-    }
-
     pub fn insert_at(&mut self, item: TimePoint, index: usize) {
         let index = index.min(self.times.len());
         if index == self.times.len() {
@@ -414,7 +403,10 @@ impl TimeSheet {
 
     pub fn paste(&mut self) {
         if let Some(item) = self.register.clone() {
-            self.insert(item, None);
+            let mut item = item;
+            item.time = self.current_minutes_since_start();
+            let index = self.insertion_index_for_now();
+            self.insert_at(item, index);
         }
     }
 
