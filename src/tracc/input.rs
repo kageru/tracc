@@ -18,7 +18,6 @@ pub(crate) enum InputState {
 #[derive(Copy, Clone)]
 pub(crate) enum PrefixState {
     G,
-    Y,
 }
 
 pub(crate) struct ConfirmState {
@@ -98,7 +97,10 @@ impl Tracc {
                 Ok(InputState::Normal)
             }
             KeyCode::Char('g') => Ok(InputState::Prefix(PrefixState::G)),
-            KeyCode::Char('y') => Ok(InputState::Prefix(PrefixState::Y)),
+            KeyCode::Char('y') => {
+                self.times.yank();
+                Ok(InputState::Normal)
+            }
             KeyCode::Char('o') => self.begin_new_item(),
             KeyCode::Char('a') => {
                 let selected = self.times.selected;
@@ -213,12 +215,6 @@ impl Tracc {
                     KeyCode::Char('d') => return self.begin_day_load(),
                     KeyCode::Char('t') => self.goto_today()?,
                     _ => {}
-                }
-                Ok(InputState::Normal)
-            }
-            PrefixState::Y => {
-                if matches!(input.code, KeyCode::Char('y')) {
-                    self.times.yank();
                 }
                 Ok(InputState::Normal)
             }

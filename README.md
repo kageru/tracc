@@ -57,7 +57,7 @@ but only Linux has been tested.
 - `-` move the selected time back by five minutes
 - `+` move the selected time forward by five minutes
 - `d` delete the selected entry
-- `y y` copy the selected entry
+- `y` copy the selected entry
 - `p` paste the copied entry
 - `u` undo
 - `Ctrl+r` redo
