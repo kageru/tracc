@@ -120,28 +120,60 @@ where
 pub fn parse_minutes(value: &str) -> Result<i64, String> {
     let value = value.trim();
     if value.len() == 4 && value.chars().all(|chr| chr.is_ascii_digit()) {
-        let hours = value[..2]
-            .parse::<i64>()
-            .map_err(|_| format!("invalid hour in time value: {value}"))?;
-        let minutes = value[2..]
-            .parse::<i64>()
-            .map_err(|_| format!("invalid minute in time value: {value}"))?;
-        return Ok(hours * 60 + minutes);
+        return clock_time_to_minutes(value, &value[..2], &value[2..]);
     }
 
     if let Some((hours, minutes)) = value.split_once(':') {
-        let hours = hours
-            .parse::<i64>()
-            .map_err(|_| format!("invalid hour in time value: {value}"))?;
-        let minutes = minutes
-            .parse::<i64>()
-            .map_err(|_| format!("invalid minute in time value: {value}"))?;
-        return Ok(hours * 60 + minutes);
+        return clock_time_to_minutes(value, hours, minutes);
     }
 
     value
         .parse::<i64>()
         .map_err(|_| format!("invalid time value: {value}"))
+}
+
+fn clock_time_to_minutes(value: &str, hours: &str, minutes: &str) -> Result<i64, String> {
+    let hours = hours
+        .parse::<i64>()
+        .map_err(|_| format!("invalid hour in time value: {value}"))?;
+    let minutes = minutes
+        .parse::<i64>()
+        .map_err(|_| format!("invalid minute in time value: {value}"))?;
+
+    if hours >= 48 {
+        return Err(format!("invalid hour in time value: {value}"));
+    }
+
+    if !(0..60).contains(&minutes) {
+        return Err(format!("invalid minute in time value: {value}"));
+    }
+
+    Ok(hours * 60 + minutes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_minutes;
+
+    #[test]
+    fn rejects_minutes_over_59_in_clock_form() {
+        assert!(parse_minutes("10:200").is_err());
+    }
+
+    #[test]
+    fn accepts_clock_form_with_valid_minutes() {
+        assert_eq!(parse_minutes("10:20").unwrap(), 620);
+    }
+
+    #[test]
+    fn rejects_compact_form_with_hour_at_48_or_more() {
+        assert!(parse_minutes("4820").is_err());
+    }
+
+    #[test]
+    fn rejects_compact_form_with_minutes_over_59() {
+        assert!(parse_minutes("1060").is_err());
+    }
 }
 
 fn current_minutes_since(date: Date) -> i64 {
