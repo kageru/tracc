@@ -10,9 +10,18 @@
 ## Layout
 - Single-crate Rust binary.
 - `src/main.rs` sets up the terminal session and calls `Tracc::run()`.
-- `src/tracc.rs` contains the app loop, keybindings, undo/redo, and persistence.
 - `src/timesheet.rs` owns day storage and summary logic.
-- `src/layout.rs` and `src/confirm.rs` contain the shared TUI widgets.
+- `src/confirm.rs` and `src/layout.rs` contain the shared TUI widgets.
+- `src/tracc/mod.rs` owns the app state and loop.
+- `src/tracc/edit.rs`,
+  `src/tracc/history.rs`,
+  `src/tracc/input.rs`,
+  `src/tracc/navigation.rs`,
+  and `src/tracc/render.rs`
+  split editing, undo/redo, input handling, navigation, and rendering.
+
+## Maintenance
+- Update this file whenever the source layout changes.
 
 ## Data
 - Active timesheets are stored under the OS data directory at `tracc/timesheets/YYYY/MM/DD.json`, not in the repo root.
