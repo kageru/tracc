@@ -93,6 +93,8 @@ impl Tracc {
         }
         if self.times.date < today {
             spans.push(Span::raw(" >"));
+        } else {
+            spans.push(Span::raw(" "));
         }
         Line::from(spans)
     }
