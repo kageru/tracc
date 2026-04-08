@@ -100,13 +100,6 @@ impl EditState {
         match input.code {
             KeyCode::Esc => return EditOutcome::Cancel,
             KeyCode::Enter => return EditOutcome::Commit,
-            KeyCode::Char('j')
-                if input
-                    .state
-                    .contains(crossterm::event::KeyEventState::KEYPAD) =>
-            {
-                return EditOutcome::Commit;
-            }
             KeyCode::Backspace if input.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.delete_prev_word()
             }
