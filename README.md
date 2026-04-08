@@ -41,8 +41,8 @@ but only Linux has been tested.
 
 - `q` quit
 - `j` / `k` move selection down / up
-- `G` jump to the first entry
-- `g g` jump to the last entry
+- `G` jump to the last entry
+- `g g` jump to the first entry
 - `g t` jump to today
 - `g d` load a date by ISO input (`YYYY-MM-DD`)
 - `J` go to the next day

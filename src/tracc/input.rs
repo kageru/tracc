@@ -94,7 +94,7 @@ impl Tracc {
                 Ok(InputState::Normal)
             }
             KeyCode::Char('G') => {
-                self.times.selection_first();
+                self.times.selection_last();
                 Ok(InputState::Normal)
             }
             KeyCode::Char('g') => Ok(InputState::Prefix(PrefixState::G)),
@@ -209,7 +209,7 @@ impl Tracc {
         match prefix {
             PrefixState::G => {
                 match input.code {
-                    KeyCode::Char('g') => self.times.selection_last(),
+                    KeyCode::Char('g') => self.times.selection_first(),
                     KeyCode::Char('d') => return self.begin_day_load(),
                     KeyCode::Char('t') => self.goto_today()?,
                     _ => {}
