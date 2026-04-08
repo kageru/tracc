@@ -46,7 +46,7 @@ impl Tracc {
 
         self.times = previous;
         self.input_state = super::input::InputState::Normal;
-        self.sheet_locked = !self.times.is_today();
+        self.sheet_locked = !self.times.is_today() && self.undo_history.is_empty();
         self.persist_state();
         self.terminal.hide_cursor()
     }
@@ -61,7 +61,6 @@ impl Tracc {
 
         self.times = next;
         self.input_state = super::input::InputState::Normal;
-        self.sheet_locked = !self.times.is_today();
         self.persist_state();
         self.terminal.hide_cursor()
     }
